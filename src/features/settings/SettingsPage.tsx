@@ -238,8 +238,9 @@ function General() {
 					</div>
 					<SaveBar dirty={dirty} onSave={save} onDiscard={discard} />
 				</Card>
-
-				<TourCard />
+				<div className="hidden md:block">
+					<TourCard />
+				</div>
 			</div>
 			<div className="space-y-4">
 				<Card className="p-6">
@@ -423,6 +424,9 @@ function General() {
 						onDiscard={hours.discard}
 					/>
 				</Card>
+				<div className=" md:hidden">
+					<TourCard />
+				</div>
 			</div>
 		</div>
 	);
