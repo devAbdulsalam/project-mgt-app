@@ -1,7 +1,6 @@
 import { createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect, Outlet, type SearchSchemaInput } from '@tanstack/react-router';
 import { z } from 'zod';
 import { useAuthStore } from '@/shared/lib/auth-store';
-import { PlaceholderPage } from '@/features/placeholder/PlaceholderPage';
 import { NotFoundPage } from '@/features/system/NotFoundPage';
 import { RouteFallback } from '@/features/system/RouteFallback';
 import { ticketSearchSchema, type TicketSearch } from '@/features/tickets/model/filters';
@@ -15,6 +14,7 @@ import { assetsSearchSchema } from '@/features/assets/model';
 import { visitsSearchSchema } from '@/features/visits/model';
 import { kbSearchSchema } from '@/features/kb/model';
 import { reportsSearchSchema } from '@/features/reports/model';
+import { profileSearchSchema } from '@/features/profile/model';
 
 // Route-level code splitting: each page is its own chunk.
 const LoginPage = lazyRouteComponent(() => import('@/features/auth/pages/LoginPage'), 'LoginPage');
@@ -48,6 +48,7 @@ const KbPage = lazyRouteComponent(() => import('@/features/kb/KbPages'), 'KbPage
 const KbArticlePage = lazyRouteComponent(() => import('@/features/kb/KbPages'), 'KbArticlePage');
 const ReportsPage = lazyRouteComponent(() => import('@/features/reports/ReportsPage'), 'ReportsPage');
 const SettingsPage = lazyRouteComponent(() => import('@/features/settings/SettingsPage'), 'SettingsPage');
+const ProfilePage = lazyRouteComponent(() => import('@/features/profile/ProfilePage'), 'ProfilePage');
 
 const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFoundPage, pendingComponent: RouteFallback });
 
@@ -171,8 +172,8 @@ const reportsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'report
 const settingsIndexRoute = createRoute({ getParentRoute: () => orgRoute, path: 'settings', beforeLoad: ({ params }) => { throw redirect({ to: '/$org/settings/$section', params: { org: params.org, section: 'general' }, replace: true }); } });
 const settingsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'settings/$section', component: SettingsPage });
 
-const stubSections = ['me'] as const;
-const stubRoutes = stubSections.map((section) => createRoute({ getParentRoute: () => orgRoute, path: section, component: () => <PlaceholderPage section={section} /> }));
+const profileRoute = createRoute({ getParentRoute: () => orgRoute, path: 'me', validateSearch: (input: Partial<z.infer<typeof profileSearchSchema>> & SearchSchemaInput) => profileSearchSchema.parse(input), component: ProfilePage });
+const stubRoutes: ReturnType<typeof createRoute>[] = [];
 
 const routeTree = rootRoute.addChildren([
 	indexRoute,
@@ -206,6 +207,7 @@ const routeTree = rootRoute.addChildren([
 			reportsRoute,
 			settingsIndexRoute,
 			settingsRoute,
+			profileRoute,
 			...stubRoutes,
 		]),
 	]),

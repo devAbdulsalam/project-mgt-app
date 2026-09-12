@@ -131,7 +131,7 @@ export function MyWorkPage() {
 			</div>
 
 			<div className="mt-0 grid gap-4 lg:mt-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] [&>*]:min-w-0">
-				<Card className="hidden overflow-hidden lg:block">
+				<Card className="hidden overflow-hidden lg:block" data-tour="mywork-list">
 					<div className="flex items-center justify-between px-5 pt-4 pb-2.5">
 						<h3 className="text-sm font-semibold">{search.tab === 'assigned' ? 'Assigned to me' : search.tab === 'mentioned' ? 'Mentions' : search.tab === 'watching' ? 'Watching' : 'Created by me'}</h3>
 						<span className="text-xs text-t2">
@@ -178,7 +178,7 @@ export function MyWorkPage() {
 					)}
 				</Card>
 
-				<div className="lg:hidden">
+				<div className="lg:hidden" data-tour="m-mywork">
 					{list.length === 0 ? <div className="card"><EmptyState title="Nothing here">You're all caught up in this view.</EmptyState></div> : <TicketCards tickets={list} now={now} onOpen={openTicket} />}
 				</div>
 

@@ -97,7 +97,7 @@ export function TeamPage() {
 			{selected.size ? <div className="mt-3 hidden items-center gap-3 rounded-[10px] bg-brand-900 px-3.5 py-2 text-[13px] text-white lg:flex"><b>{selected.size} selected</b><Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => { toast(`Reminder sent to ${selected.size} people`, { tone: 'success' }); setSelected(new Set()); }}>Send reminder</Button><Button size="sm" variant="ghost" className="text-white hover:bg-white/10 hover:text-white" onClick={() => { selected.forEach((id) => id !== user.id && setStatus(id, 'Deactivated')); setSelected(new Set()); }}>Deactivate</Button><button type="button" className="ms-auto text-xs text-on-dark-muted" onClick={() => setSelected(new Set())}>Clear</button></div> : null}
 
 			<div className={cn('mt-4 grid gap-4 [&>*]:min-w-0', current && 'lg:grid-cols-[minmax(0,1fr)_400px]')}>
-				<Card className="hidden overflow-x-auto lg:block">
+				<Card className="hidden overflow-x-auto lg:block" data-tour="team-table">
 					{list.length === 0 ? <EmptyState title="No people match" /> : (
 						<table className="w-full text-[13px]">
 							<thead><tr className="bg-muted text-left text-[11px] font-semibold tracking-wider text-t2 uppercase"><th className="w-10 px-3.5 py-3"><input type="checkbox" className="size-4 accent-brand-900" checked={list.every((m) => selected.has(m.id))} onChange={() => setSelected(list.every((m) => selected.has(m.id)) ? new Set() : new Set(list.map((m) => m.id)))} aria-label="Select all" /></th><th className="px-3.5 py-3">Name</th><th className="px-3.5 py-3">Role</th><th className="px-3.5 py-3">Team · Base</th><th className="px-3.5 py-3">Open</th><th className="px-3.5 py-3">Status</th><th className="px-3.5 py-3">Last active</th><th className="w-10" /></tr></thead>
@@ -119,7 +119,7 @@ export function TeamPage() {
 					)}
 				</Card>
 
-				<div className="space-y-3 lg:hidden">
+				<div className="space-y-3 lg:hidden" data-tour="m-team">
 					{list.map((m) => (
 						<button key={m.id} type="button" onClick={() => setSearch({ member: m.id })} className="flex w-full items-center gap-3 rounded-md bg-white p-3.5 text-left shadow-card"><Avatar name={m.name} tint={m.tint} size="lg" /><div className="min-w-0 flex-1"><b className="block truncate text-[15px]">{m.name}</b><span className="block truncate text-xs text-t2">{m.role} · {m.base}</span></div><StatusPillFor m={m} /></button>
 					))}

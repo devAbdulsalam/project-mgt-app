@@ -81,7 +81,7 @@ export function ClientsPage() {
 
 			{list.length === 0 ? <Card className="mt-4"><EmptyState title="No clients match" /></Card> : null}
 
-			<Card className="mt-4 hidden overflow-x-auto lg:block">
+			<Card className="mt-4 hidden overflow-x-auto lg:block" data-tour="clients-table">
 				{list.length ? (
 					<table className="w-full text-[13px]">
 						<thead><tr className="bg-muted text-left text-[11px] font-semibold tracking-wider text-t2 uppercase"><th className="px-4 py-3">Client</th><th className="px-4 py-3">Industry · City</th><th className="px-4 py-3">Plan</th><th className="px-4 py-3">Sites</th><th className="px-4 py-3">Assets</th><th className="px-4 py-3">Open</th><th className="px-4 py-3">Hours used</th><th className="px-4 py-3">Health</th><th className="px-4 py-3">MRR</th><th className="px-4 py-3">Renewal</th><th className="w-8" /></tr></thead>
@@ -112,7 +112,7 @@ export function ClientsPage() {
 				) : null}
 			</Card>
 
-			<div className="space-y-3 lg:hidden">
+			<div className="space-y-3 lg:hidden" data-tour="m-clients">
 				{list.map((c) => (
 					<Link key={c.id} to="/$org/customers/$clientId" params={{ org: org.slug, clientId: c.id }} search={{}} className="flex items-center gap-3 rounded-md bg-white p-3.5 shadow-card"><Avatar name={c.name} tint={c.tint} size="lg" /><div className="min-w-0 flex-1"><b className="block truncate text-[15px]">{c.name}</b><span className="block truncate text-xs text-t2">{c.industry} · {c.city} · {openCount(c.id).length} open</span></div><Pill tone={planTone[c.plan]}>{c.plan}</Pill></Link>
 				))}

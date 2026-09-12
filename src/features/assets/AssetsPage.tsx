@@ -178,7 +178,7 @@ export function AssetsPage() {
 			</div>
 
 			<div className={cn('mt-4 grid gap-4 [&>*]:min-w-0', current && 'xl:grid-cols-[minmax(0,1fr)_420px]')}>
-				<Card className="overflow-x-auto">
+				<Card className="overflow-x-auto" data-tour="m-assets">
 					{list.length === 0 ? <EmptyState icon={<Cpu size={20} />} title="No assets match" action={<Button variant="primary" onClick={() => setAdding(true)}>Add asset</Button>} /> : (
 						<table className="w-full text-[13px]">
 							<thead><tr className="bg-muted text-left text-[11px] font-semibold tracking-wider text-t2 uppercase"><th className="hidden w-10 px-3.5 py-3 lg:table-cell"><input type="checkbox" className="size-4 accent-brand-900" checked={list.every((a) => selected.has(a.tag))} onChange={() => setSelected(list.every((a) => selected.has(a.tag)) ? new Set() : new Set(list.map((a) => a.tag)))} aria-label="Select all" /></th><th className="px-3.5 py-3">Tag</th><th className="px-3.5 py-3">Asset</th><th className="hidden px-3.5 py-3 md:table-cell">Site · User</th><th className="px-3.5 py-3">Status</th><th className="hidden px-3.5 py-3 lg:table-cell">Agent</th><th className="hidden px-3.5 py-3 md:table-cell">Warranty</th><th className="hidden px-3.5 py-3 lg:table-cell">Open</th></tr></thead>
@@ -199,7 +199,7 @@ export function AssetsPage() {
 						</table>
 					)}
 				</Card>
-				{current ? <div className="hidden xl:block"><AssetPanel asset={current} orgSlug={org.slug} onClose={() => setSearch({ asset: undefined })} onTicket={() => setTicketFor(current)} /></div> : null}
+				{current ? <div className="hidden xl:block" data-tour="asset-panel"><AssetPanel asset={current} orgSlug={org.slug} onClose={() => setSearch({ asset: undefined })} onTicket={() => setTicketFor(current)} /></div> : null}
 			</div>
 
 			<Dialog open={!!current && typeof window !== 'undefined' && window.innerWidth < 1280} onClose={() => setSearch({ asset: undefined })} title={current?.tag} width="max-w-[520px]">{current ? <div className="p-4"><AssetPanel asset={current} orgSlug={org.slug} onClose={() => setSearch({ asset: undefined })} onTicket={() => setTicketFor(current)} /></div> : null}</Dialog>

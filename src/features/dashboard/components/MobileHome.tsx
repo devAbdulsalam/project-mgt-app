@@ -34,7 +34,7 @@ export function MobileHomeHeader({ org, user, now }: { org: Org; user: User; now
 					{unread ? <span className="absolute top-1.5 right-2 rounded-full bg-danger px-1 text-[9px] font-bold">{unread}</span> : null}
 				</Link>
 			</div>
-			<div className="mt-3.5 grid grid-cols-3 gap-2.5">
+			<div className="mt-3.5 grid grid-cols-3 gap-2.5" data-tour="m-kpis">
 				{kpis.map((k) => (
 					<div key={k.id} className="rounded-md bg-white/10 p-3">
 						<k.icon size={16} style={{ color: k.color }} aria-hidden />
@@ -55,7 +55,7 @@ export function MobileHomeBody({ org, tickets, now, onOpen, onCreate }: { org: O
 	return (
 		<div className="space-y-3">
 			<h2 className="text-base font-semibold">Quick actions</h2>
-			<div className="grid grid-cols-3 gap-2.5">
+			<div className="grid grid-cols-3 gap-2.5" data-tour="m-new">
 				{actions.map((a) => (
 					<button key={a.label} type="button" onClick={a.onClick} className="flex flex-col items-center gap-2 rounded-md bg-white px-2 py-3.5 text-center text-xs font-semibold shadow-card">
 						<span className={`grid size-11 place-items-center rounded-md ${a.tint}`} aria-hidden>
@@ -72,7 +72,7 @@ export function MobileHomeBody({ org, tickets, now, onOpen, onCreate }: { org: O
 				</Link>
 			</div>
 
-			<div className="flex items-center justify-between pt-1">
+			<div className="flex items-center justify-between pt-1" data-tour="m-attention">
 				<h2 className="text-base font-semibold">Needs attention</h2>
 				<Link to="/$org/tickets" params={{ org: org.slug }} search={{ tab: 'risk' }} className="text-[13px] font-medium text-brand-600">
 					See all

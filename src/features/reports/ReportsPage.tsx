@@ -35,8 +35,8 @@ export function ReportsPage() {
 	const clientName = clients.find((c) => c.id === search.client)?.name;
 
 	return (
-		<AppShell meta={{ title: `Reports · ${isService ? 'Service desk' : 'Projects'}`, subtitle: isService ? 'SLA, response times, CSAT and engineer utilisation' : 'Velocity, cycle time and epic delivery' }} mobileHeader={<MobileHeader><h1 className="text-xl font-semibold">Reports</h1><p className="text-xs text-on-dark-muted">{isService ? 'Service desk' : 'Projects'} · {rangeShort[search.range]}</p></MobileHeader>}>
-			<div className="flex flex-wrap items-center gap-2">
+		<AppShell meta={{ title: `Reports · ${isService ? 'Service desk' : 'Projects'}`, subtitle: isService ? 'SLA, response times, CSAT and engineer utilisation' : 'Velocity, cycle time and epic delivery' }} mobileHeader={<MobileHeader><h1 className="text-xl font-semibold" data-tour="m-reports">Reports</h1><p className="text-xs text-on-dark-muted">{isService ? 'Service desk' : 'Projects'} · {rangeShort[search.range]}</p></MobileHeader>}>
+			<div className="flex flex-wrap items-center gap-2" data-tour="reports-controls">
 				<Menu width="w-44" trigger={({ toggle, buttonProps }) => <Button variant="soft" size="sm" className="h-8" onClick={toggle} {...buttonProps}>{isService ? 'Service desk' : 'Projects'} <ChevronDown size={12} aria-hidden /></Button>} items={[{ key: 'service', label: 'Service desk', selected: isService, onSelect: () => setSearch({ report: 'service' }) }, { key: 'projects', label: 'Projects', selected: !isService, onSelect: () => setSearch({ report: 'projects' }) }]} />
 				<Menu width="w-56" trigger={({ toggle, buttonProps }) => <Button size="sm" className="h-8" onClick={toggle} {...buttonProps}>{rangeLabel[search.range]} <ChevronDown size={12} aria-hidden /></Button>} items={(['30d', '90d', 'quarter'] as const).map((r) => ({ key: r, label: rangeLabel[r], selected: search.range === r, onSelect: () => setSearch({ range: r }) }))} />
 				{isService ? <Menu width="w-64" trigger={({ toggle, buttonProps }) => <Button size="sm" className="h-8" onClick={toggle} {...buttonProps}>Clients: {clientName ?? 'All'} <ChevronDown size={12} aria-hidden /></Button>} items={[{ key: 'all', label: 'All clients', selected: !search.client, onSelect: () => setSearch({ client: undefined }) }, ...clients.map((c) => ({ key: c.id, label: c.name, selected: search.client === c.id, onSelect: () => setSearch({ client: c.id }) }))]} /> : null}
@@ -53,7 +53,7 @@ export function ReportsPage() {
 				<>
 					<div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">{service.kpis.map((k) => <StatTile key={k.label} label={k.label} value={k.value} sub={search.compare ? k.sub : k.sub.replace(/ vs prev/, '')} subTone={k.tone} />)}</div>
 					<div className="mt-4 grid gap-4 xl:grid-cols-[1.45fr_1fr] [&>*]:min-w-0">
-						<Card className="p-5">
+						<Card className="p-5" data-tour="reports-chart">
 							<CardHeader title="Resolution time vs SLA · daily" sub="Median hours to resolve, by priority" action={<span className="flex gap-3 text-xs">{[['P1', '#b91c1c'], ['P2', '#c2410c'], ['P3', '#2f5f70']].map(([l, c]) => <span key={l} className="flex items-center gap-1.5"><span className="h-0.5 w-4" style={{ background: c }} />{l}</span>)}</span>} />
 							<div className="mt-3 h-[260px]" role="img" aria-label="Line chart of median resolution hours per day for P1, P2 and P3 with SLA target lines">
 								<ResponsiveContainer width="100%" height="100%">

@@ -8,6 +8,25 @@ export interface User {
 	email: string;
 	role: Role;
 	avatarTint?: 'teal' | 'tan' | 'green' | 'lavender' | 'grey';
+	/** Data URL of a resized profile photo, set from the profile page. */
+	avatarUrl?: string;
+	displayName?: string;
+	title?: string;
+	team?: string;
+	phone?: string;
+	phoneVerified?: boolean;
+	base?: string;
+	timezone?: string;
+	languages?: string[];
+	signature?: string;
+	available?: boolean;
+	availableUntil?: string;
+	shareLocation?: boolean;
+	shift?: string;
+	outOfOffice?: { on: boolean; from?: string; to?: string; note?: string };
+	memberSince?: string;
+	twoFactor?: boolean;
+	passwordChangedDaysAgo?: number;
 }
 
 export interface Org {
@@ -60,9 +79,9 @@ export const orgs: Org[] = [
 ];
 
 export const users: User[] = [
-	{ id: 'u_adaeze', name: 'Adaeze Okonkwo', email: 'adaeze@kolanutsystems.ng', role: 'Operations Lead', avatarTint: 'teal' },
+	{ id: 'u_adaeze', name: 'Adaeze Okonkwo', email: 'adaeze@kolanutsystems.ng', role: 'Operations Lead', avatarTint: 'teal', displayName: 'Adaeze from Kolanut Support', title: 'Operations Lead', team: 'Service desk · Lagos', phone: '803 555 0142', phoneVerified: true, base: 'Lagos · Ikeja office', timezone: 'West Africa Time (GMT+1)', languages: ['English', 'Yoruba', 'Igbo'], signature: 'Adaeze Okonkwo · Operations Lead\nKolanut Systems Ltd · +234 803 555 0142\nSupport line: +234 1 700 0000 · support@kolanutsystems.ng', available: true, availableUntil: '17:00', shareLocation: false, shift: 'Mon–Fri · 08:00–18:00', outOfOffice: { on: false }, memberSince: 'Mar 2024', twoFactor: true, passwordChangedDaysAgo: 84 },
 	{ id: 'u_amr', name: 'Amr Hassan', email: 'amr.hassan@alrashidi.ae', role: 'Super Admin', avatarTint: 'teal' },
-	{ id: 'u_chinedu', name: 'Chinedu Eze', email: 'chinedu.eze@kolanutsystems.ng', role: 'Field engineer', avatarTint: 'teal' },
+	{ id: 'u_chinedu', name: 'Chinedu Eze', email: 'chinedu.eze@kolanutsystems.ng', role: 'Field engineer', avatarTint: 'teal', displayName: 'Chinedu from Kolanut Support', title: 'Field engineer', team: 'Field · Lagos', phone: '803 555 0912', phoneVerified: true, base: 'Lagos · Lekki base', timezone: 'West Africa Time (GMT+1)', languages: ['English', 'Yoruba'], available: true, availableUntil: '17:00', shareLocation: true, shift: 'Mon–Sat · 08:00–17:00', outOfOffice: { on: false }, memberSince: 'Apr 2024', twoFactor: true, passwordChangedDaysAgo: 84 },
 ];
 
 /** Demo credentials accepted by the mock auth layer. */

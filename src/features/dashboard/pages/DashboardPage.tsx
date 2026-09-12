@@ -73,7 +73,7 @@ export function DashboardPage() {
 							width="w-44"
 							header="Date range"
 							trigger={({ toggle, buttonProps }) => (
-								<Button onClick={toggle} {...buttonProps}>
+								<Button onClick={toggle} data-tour="dash-range" {...buttonProps}>
 									<Calendar size={14} aria-hidden /> {rangeLabels[range]} <ChevronDown size={12} aria-hidden />
 								</Button>
 							)}
@@ -85,13 +85,13 @@ export function DashboardPage() {
 						<Button onClick={exportCsv}>
 							<Download size={15} aria-hidden /> Export
 						</Button>
-						<Button variant="primary" onClick={() => setCreating(true)}>
+						<Button variant="primary" onClick={() => setCreating(true)} data-tour="dash-new">
 							<Plus size={15} aria-hidden /> New Ticket
 						</Button>
 					</div>
 				</div>
 
-				<section aria-label="Key metrics" className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+				<section aria-label="Key metrics" className="grid grid-cols-2 gap-4 xl:grid-cols-4" data-tour="dash-kpis">
 					{refreshing ? data.kpis.map((k) => <KpiCardSkeleton key={k.id} />) : data.kpis.map((k) => <KpiCard key={k.id} kpi={k} />)}
 				</section>
 
@@ -103,7 +103,7 @@ export function DashboardPage() {
 				<section className="grid gap-4 xl:grid-cols-[1.2fr_1fr_1fr]">
 					<TopClientsCard clients={data.clients} orgSlug={org.slug} />
 					<EngineerStatusCard orgSlug={org.slug} />
-					<NeedsAttentionCard tickets={data.needsAttention} now={now} onOpen={openTicket} orgSlug={org.slug} />
+					<div data-tour="dash-attention" className="min-w-0"><NeedsAttentionCard tickets={data.needsAttention} now={now} onOpen={openTicket} orgSlug={org.slug} /></div>
 				</section>
 			</div>
 

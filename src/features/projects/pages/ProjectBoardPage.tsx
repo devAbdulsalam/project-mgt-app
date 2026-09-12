@@ -112,7 +112,7 @@ export function ProjectBoardPage() {
 			</div>
 
 			{/* Desktop columns */}
-			<div className="hidden gap-3 overflow-x-auto pb-2 lg:flex">
+			<div className="hidden gap-3 overflow-x-auto pb-2 lg:flex" data-tour="board">
 				{columns.map((col) => {
 					const items = visible.filter((t) => col.statuses.includes(t.status));
 					const canDrop = dragging ? transitions[dragging.status].includes(col.target) || col.statuses.includes(dragging.status) : true;
@@ -143,7 +143,7 @@ export function ProjectBoardPage() {
 			</div>
 
 			{/* Mobile: one column at a time */}
-			<div className="lg:hidden">
+			<div className="lg:hidden" data-tour="m-board">
 				<div className="mb-3 flex items-center justify-between">
 					<button type="button" onClick={() => setMobileCol((c) => Math.max(0, c - 1))} disabled={mobileCol === 0} className="grid size-9 place-items-center rounded-full bg-white shadow-card disabled:opacity-40" aria-label="Previous column"><ChevronLeft size={18} /></button>
 					<div className="text-center"><b className="text-[15px]">{columns[mobileCol]!.title}</b><div className="mt-1 flex justify-center gap-1">{columns.map((c, i) => <span key={c.id} className={cn('size-1.5 rounded-full', i === mobileCol ? 'bg-brand-900' : 'bg-border-strong')} />)}</div></div>

@@ -58,7 +58,7 @@ export function SignupTeamPage() {
 		try {
 			updateSignup({ planId: form.getValues('planId') });
 			const org = await completeSignup();
-			navigate({ to: '/$org/dashboard', params: { org: org.slug }, replace: true, search: { welcome: skip ? undefined : inviteCount } });
+			navigate({ to: '/$org/dashboard', params: { org: org.slug }, replace: true, search: { welcome: skip ? undefined : inviteCount, tour: 'choice' } });
 		} catch (e) {
 			setError(e instanceof Error ? e.message : 'Something went wrong');
 		} finally {

@@ -87,7 +87,7 @@ export function VisitsPage() {
 	const weekDays = Array.from({ length: 7 }, (_, i) => { const d = new Date(now); d.setDate(d.getDate() - d.getDay() + 1 + i); d.setHours(0, 0, 0, 0); return d; });
 
 	return (
-		<AppShell meta={{ title: 'Visits · Dispatch', subtitle: `${new Date(now).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })} · ${region} region` }} mobileHeader={<MobileHeader className={search.panel ? 'hidden' : undefined}><div className="flex items-center justify-between"><h1 className="text-xl font-semibold">Visits</h1><button type="button" onClick={() => setScheduling(true)} className="flex h-8 items-center gap-1 rounded-full bg-white px-3 text-[13px] font-semibold text-brand-900"><Plus size={14} /> Schedule</button></div><p className="text-xs text-on-dark-muted">{todays.length} today · {unscheduled.length} unscheduled</p></MobileHeader>}>
+		<AppShell meta={{ title: 'Visits · Dispatch', subtitle: `${new Date(now).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })} · ${region} region` }} mobileHeader={<MobileHeader className={search.panel ? 'hidden' : undefined}><div className="flex items-center justify-between" data-tour="m-visits"><h1 className="text-xl font-semibold">Visits</h1><button type="button" onClick={() => setScheduling(true)} className="flex h-8 items-center gap-1 rounded-full bg-white px-3 text-[13px] font-semibold text-brand-900"><Plus size={14} /> Schedule</button></div><p className="text-xs text-on-dark-muted">{todays.length} today · {unscheduled.length} unscheduled</p></MobileHeader>}>
 			<div className="flex flex-wrap items-center gap-2.5">
 				<div className="flex items-center rounded-sm border border-border-strong bg-white" role="group" aria-label="View">
 					{(['today', 'week'] as const).map((v) => <button key={v} type="button" onClick={() => setSearch({ view: v })} className={cn('h-8 px-3 text-[13px] first:rounded-l-sm last:rounded-r-sm', search.view === v ? 'bg-brand-100 font-semibold text-brand-900' : 'text-t2 hover:bg-muted')} aria-pressed={search.view === v}>{v === 'today' ? 'Today' : 'Week view'}</button>)}
@@ -96,7 +96,7 @@ export function VisitsPage() {
 				<span className="text-[13px] text-t2">Engineers: {regionEngineers.length}</span>
 				<span className="hidden items-center gap-1.5 text-[13px] text-t2 md:flex"><AlertTriangle size={14} className="text-warning" aria-hidden /> Traffic: heavy on Third Mainland &amp; Ikorodu Rd</span>
 				<div className="ms-auto flex items-center gap-2.5">
-					<Button onClick={autoRoute}><Zap size={15} aria-hidden /> Auto-route</Button>
+					<Button onClick={autoRoute} data-tour="visits-autoroute"><Zap size={15} aria-hidden /> Auto-route</Button>
 					<Button variant="primary" className="hidden lg:inline-flex" onClick={() => setScheduling(true)}><Plus size={15} aria-hidden /> Schedule visit</Button>
 				</div>
 			</div>
@@ -119,7 +119,7 @@ export function VisitsPage() {
 			) : (
 				<div className="mt-4 grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)_340px] [&>*]:min-w-0">
 					{/* Unscheduled */}
-					<Card className="p-4">
+					<Card className="p-4" data-tour="visits-unscheduled">
 						<div className="flex items-center justify-between"><h3 className="flex items-center gap-2 text-[15px] font-semibold">Unscheduled <Pill tone="blocked">{unscheduled.length}</Pill></h3><span className="hidden text-xs text-t2 xl:inline">Drag onto an engineer</span></div>
 						<ul className="mt-3 space-y-2.5">
 							{unscheduled.length === 0 ? <li className="rounded-[10px] border border-dashed border-border-strong p-4 text-center text-xs text-t3">Everything is scheduled.</li> : null}
@@ -153,7 +153,7 @@ export function VisitsPage() {
 							<div className="absolute top-3 right-3 flex flex-col gap-1"><button type="button" className="grid size-7 place-items-center rounded-sm bg-white text-t2 shadow-card" aria-label="Zoom in"><Plus size={14} /></button><button type="button" className="grid size-7 place-items-center rounded-sm bg-white text-t2 shadow-card" aria-label="Zoom out"><Minus size={14} /></button></div>
 						</Card>
 
-						<Card className="p-4">
+						<Card className="p-4" data-tour="visits-timeline">
 							<div className="ms-[188px] hidden justify-between text-[11px] text-t2 md:flex">{Array.from({ length: 6 }, (_, i) => DAY_START + i * 2).map((h) => <span key={h}>{h.toString().padStart(2, '0')}:00</span>)}</div>
 							<ul className="mt-2 space-y-2">
 								{regionEngineers.map((m) => {

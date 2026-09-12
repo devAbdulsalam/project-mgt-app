@@ -105,7 +105,7 @@ export function NotificationsPage() {
 			</div>
 
 			<div className="mt-0 grid gap-4 lg:mt-4 lg:grid-cols-[minmax(0,1fr)_380px] [&>*]:min-w-0">
-				<Card className="overflow-hidden">
+				<Card className="overflow-hidden" data-tour="notif-list">
 					{list.length === 0 ? <EmptyState icon={<Bell size={20} />} title="You're all caught up">No notifications in this view.</EmptyState> : null}
 					{groups.map(([label, items]) => (
 						<section key={label}>

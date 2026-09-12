@@ -45,7 +45,7 @@ export function TicketList({ search, onSearchChange, onOpen, projectKey, toolbar
 		<div className="space-y-4">
 			{/* Desktop header row */}
 			<div className="hidden flex-wrap items-center gap-3 lg:flex">
-				<PillTabs items={tabs} value={search.tab} onChange={(tab) => onSearchChange({ tab, page: 1 })} ariaLabel="Ticket status" className="min-w-0 flex-1" />
+				<div className="min-w-0 flex-1" data-tour="tickets-tabs"><PillTabs items={tabs} value={search.tab} onChange={(tab) => onSearchChange({ tab, page: 1 })} ariaLabel="Ticket status" /></div>
 				<div className="flex items-center gap-2.5">
 					<Menu
 						align="end"
@@ -70,7 +70,7 @@ export function TicketList({ search, onSearchChange, onOpen, projectKey, toolbar
 				</div>
 			</div>
 
-			<div className="hidden lg:block">
+			<div className="hidden lg:block" data-tour="tickets-filters">
 				<FilterBar search={search} onChange={onSearchChange} meId={user.id} showClient={isService} />
 			</div>
 
@@ -94,7 +94,7 @@ export function TicketList({ search, onSearchChange, onOpen, projectKey, toolbar
 				</div>
 			) : (
 				<>
-					<div className="card hidden overflow-hidden lg:block">
+					<div className="card hidden overflow-hidden lg:block" data-tour="tickets-table">
 						{search.view === 'cards' ? (
 							<div className="p-4">
 								<TicketCards tickets={pageItems} now={now} onOpen={onOpen} className="grid gap-3 space-y-0 md:grid-cols-2 xl:grid-cols-3" />
@@ -104,7 +104,7 @@ export function TicketList({ search, onSearchChange, onOpen, projectKey, toolbar
 						)}
 						<Pagination page={page} pageCount={pageCount} onChange={(p) => onSearchChange({ page: p })} total={filtered.length} pageSize={PAGE_SIZE} className="border-t border-border px-5 py-3.5" />
 					</div>
-					<div className="lg:hidden">
+					<div className="lg:hidden" data-tour="m-list">
 						<TicketCards tickets={pageItems} now={now} onOpen={onOpen} />
 						<Pagination page={page} pageCount={pageCount} onChange={(p) => onSearchChange({ page: p })} total={filtered.length} pageSize={PAGE_SIZE} className="pt-4" />
 					</div>
@@ -144,7 +144,7 @@ export function TicketsPage() {
 							<Plus size={14} /> New
 						</button>
 					</div>
-					<DarkChips items={mobileTabs} value={search.tab} onChange={(tab) => onSearchChange({ tab, page: 1 })} className="mt-3" />
+					<div data-tour="m-tabs"><DarkChips items={mobileTabs} value={search.tab} onChange={(tab) => onSearchChange({ tab, page: 1 })} className="mt-3" /></div>
 				</MobileHeader>
 			}
 		>

@@ -20,14 +20,14 @@ const sizes: Record<Size, string> = {
 	lg: 'size-10 text-xs',
 };
 
-export function Avatar({ name, tint = 'teal', size = 'md', className }: { name: string; tint?: Tint; size?: Size; className?: string }) {
+export function Avatar({ name, tint = 'teal', size = 'md', className, src }: { name: string; tint?: Tint; size?: Size; className?: string; src?: string }) {
 	return (
 		<span
-			className={cn('inline-grid shrink-0 place-items-center rounded-full font-bold select-none', tints[tint], sizes[size], className)}
+			className={cn('inline-grid shrink-0 place-items-center overflow-hidden rounded-full font-bold select-none', tints[tint], sizes[size], className)}
 			aria-hidden
 			title={name}
 		>
-			{initials(name)}
+			{src ? <img src={src} alt="" className="size-full object-cover" /> : initials(name)}
 		</span>
 	);
 }

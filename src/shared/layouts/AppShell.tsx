@@ -1,6 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { HelpCircle, RefreshCw, Search, MoreVertical, LogOut, ChevronsUpDown, PanelLeftClose, PanelLeftOpen, Check, Menu as MenuIcon, X } from 'lucide-react';
+import { HelpCircle, RefreshCw, Search, MoreVertical, LogOut, ChevronsUpDown, PanelLeftClose, PanelLeftOpen, Check, Menu as MenuIcon, X, PlayCircle, MousePointerClick, Keyboard, BookOpen } from 'lucide-react';
+import { Menu } from '@/shared/ui/Menu';
+import { TourRoot } from '@/features/tour/TourRoot';
+import { useTourStore } from '@/features/tour/store';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { useUiStore } from '@/shared/lib/ui-store';
 import { usePaletteStore } from '@/shared/lib/palette-store';
@@ -41,6 +44,7 @@ export function AppShell({ meta, children, mobileHeader }: { meta: PageMeta; chi
 			</div>
 			<MobileDrawer open={drawer} onClose={() => setDrawer(false)} />
 			<CommandPalette />
+			<TourRoot />
 			<Toaster />
 		</div>
 	);
@@ -84,7 +88,7 @@ function NavLinks({ collapsed, onNavigate, className }: { collapsed?: boolean; o
 	const org = useAuthStore((s) => s.org)!;
 	const unread = useUnread();
 	return (
-		<nav className={cn('flex-1 overflow-y-auto', className)} aria-label="Primary">
+		<nav className={cn('flex-1 overflow-y-auto', className)} aria-label="Primary" data-tour={collapsed ? undefined : 'nav'}>
 			{sidebarNav.map((item) => (
 				<Link
 					key={item.to}
@@ -117,7 +121,7 @@ function UserBlock({ collapsed, onDone }: { collapsed?: boolean; onDone?: () => 
 	return (
 		<div className="relative border-t border-white/10 pt-2">
 			<button type="button" onClick={() => setOpen((o) => !o)} className={cn('flex w-full items-center gap-2.5 rounded-[10px] p-2 text-left hover:bg-white/5', collapsed && 'justify-center')} aria-haspopup="menu" aria-expanded={open}>
-				<Avatar name={user.name} tint="dark" />
+				<Avatar name={user.name} tint="dark" src={user.avatarUrl} />
 				{!collapsed ? (
 					<>
 						<span className="min-w-0 flex-1 leading-tight">
@@ -131,7 +135,7 @@ function UserBlock({ collapsed, onDone }: { collapsed?: boolean; onDone?: () => 
 			{open ? (
 				<div role="menu" className="absolute inset-x-1 bottom-full z-20 mb-1 rounded-[10px] border border-border bg-white p-1 text-t1 shadow-pop">
 					<div className="px-2.5 py-2 text-xs text-t2">{user.email}</div>
-					<Link to="/$org/me" params={{ org: useAuthStore.getState().org!.slug }} role="menuitem" onClick={() => { setOpen(false); onDone?.(); }} className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-[13px] hover:bg-muted">
+					<Link to="/$org/me" params={{ org: useAuthStore.getState().org!.slug }} search={{}} role="menuitem" onClick={() => { setOpen(false); onDone?.(); }} className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-[13px] hover:bg-muted">
 						Profile &amp; preferences
 					</Link>
 					<button
@@ -186,7 +190,7 @@ function Sidebar() {
 							</span>
 							{orgsAvailable.length > 1 ? <ChevronsUpDown size={14} className="shrink-0 text-on-dark-muted" aria-hidden /> : null}
 						</button>
-						<button type="button" onClick={toggle} className="grid size-8 shrink-0 place-items-center rounded-sm text-on-dark-muted hover:bg-white/5 hover:text-white" aria-label="Collapse sidebar">
+						<button type="button" onClick={toggle} className="grid size-8 shrink-0 place-items-center rounded-sm text-on-dark-muted hover:bg-white/5 hover:text-white" aria-label="Collapse sidebar" data-tour="sidebar-collapse">
 							<PanelLeftClose size={16} />
 						</button>
 					</div>
@@ -213,22 +217,52 @@ function TopBar({ meta }: { meta: PageMeta }) {
 				<h1 className="truncate text-lg font-semibold">{meta.title}</h1>
 				{meta.subtitle ? <p className="truncate text-xs text-t2">{meta.subtitle}</p> : null}
 			</div>
-			<button type="button" onClick={() => openPalette(true)} className="mx-auto flex h-9 w-full max-w-[480px] items-center gap-2 rounded-full bg-muted px-3.5 text-[13px] text-t3 hover:bg-[#e6eaee]" aria-label="Search (Command K)">
+			<button type="button" onClick={() => openPalette(true)} className="mx-auto flex h-9 w-full max-w-[480px] items-center gap-2 rounded-full bg-muted px-3.5 text-[13px] text-t3 hover:bg-[#e6eaee]" aria-label="Search (Command K)" data-tour="search">
 				<Search size={15} aria-hidden />
 				<span className="flex-1 text-left">Search tickets, clients, devices…</span>
 				<span className="kbd">⌘K</span>
 			</button>
 			<div className="ml-auto flex items-center gap-4 text-t2">
-				<BellPopover />
-				<button type="button" className="hover:text-t1" aria-label="Help">
-					<HelpCircle size={18} />
-				</button>
+				<span data-tour="bell" className="flex"><BellPopover /></span>
+				<HelpMenu />
 				<button type="button" className="hover:text-t1" aria-label="Refresh" onClick={() => window.location.reload()}>
 					<RefreshCw size={18} />
 				</button>
-				<Avatar name={user.name} />
+				<Link to="/$org/me" params={{ org: useAuthStore.getState().org!.slug }} search={{}} aria-label="My account"><Avatar name={user.name} src={user.avatarUrl} /></Link>
 			</div>
 		</header>
+	);
+}
+
+function HelpMenu({ light, onDone }: { light?: boolean; onDone?: () => void }) {
+	const openChoice = useTourStore((s) => s.openChoice);
+	const startVideo = useTourStore((s) => s.startVideo);
+	const startInteractive = useTourStore((s) => s.startInteractive);
+	const maxStep = useTourStore((s) => s.maxStep);
+	const completedAt = useTourStore((s) => s.completedAt);
+	const openPalette = usePaletteStore((s) => s.setOpen);
+	const org = useAuthStore((s) => s.org)!;
+	const navigate = useNavigate();
+	const wrap = (fn: () => void) => () => { onDone?.(); fn(); };
+	return (
+		<Menu
+			align="end"
+			width="w-64"
+			header="Help & learning"
+			trigger={({ toggle, buttonProps }) => (
+				<button type="button" onClick={toggle} className={cn('flex items-center gap-2 rounded-sm', light ? 'w-full px-3.5 py-[11px] text-sm text-[#e6eef1] hover:bg-white/5' : 'hover:text-t1')} aria-label="Help" data-tour="help" {...buttonProps}>
+					<HelpCircle size={18} strokeWidth={light ? 1.7 : 2} />
+					{light ? <span>Help &amp; app tour</span> : null}
+				</button>
+			)}
+			items={[
+				{ key: 'tour', label: completedAt ? 'Replay the clickable tour' : maxStep > 0 ? `Resume the tour (step ${maxStep + 1})` : 'Take the clickable tour', icon: <MousePointerClick size={14} />, onSelect: wrap(() => startInteractive(completedAt ? 0 : maxStep)) },
+				{ key: 'video', label: 'Watch the opening video', icon: <PlayCircle size={14} />, onSelect: wrap(startVideo) },
+				{ key: 'choose', label: 'Choose how to learn…', icon: <HelpCircle size={14} />, onSelect: wrap(openChoice) },
+				{ key: 'kb', label: 'Knowledge base', icon: <BookOpen size={14} />, onSelect: wrap(() => navigate({ to: '/$org/kb', params: { org: org.slug }, search: {} })) },
+				{ key: 'keys', label: 'Keyboard shortcuts', icon: <Keyboard size={14} />, hint: '⌘K', onSelect: wrap(() => openPalette(true)) },
+			]}
+		/>
 	);
 }
 
@@ -240,7 +274,7 @@ function MobileAppBar({ onMenu, title }: { onMenu: () => void; title: string }) 
 	const openPalette = usePaletteStore((s) => s.setOpen);
 	return (
 		<div className="flex h-11 items-center gap-2 bg-brand-950 px-2 pt-[env(safe-area-inset-top)] text-white">
-			<button type="button" onClick={onMenu} className="grid size-10 place-items-center rounded-full hover:bg-white/10" aria-label="Open menu">
+			<button type="button" onClick={onMenu} className="grid size-10 place-items-center rounded-full hover:bg-white/10" aria-label="Open menu" data-tour="menu">
 				<MenuIcon size={22} />
 			</button>
 			<span className="min-w-0 flex-1 truncate text-[13px]">
@@ -250,7 +284,7 @@ function MobileAppBar({ onMenu, title }: { onMenu: () => void; title: string }) 
 			<button type="button" onClick={() => openPalette(true)} className="grid size-10 place-items-center rounded-full hover:bg-white/10" aria-label="Search">
 				<Search size={19} />
 			</button>
-			<Avatar name={user.name} tint="dark" size="md" className="me-1" />
+			<Link to="/$org/me" params={{ org: org.slug }} search={{}} aria-label="My account" className="me-1"><Avatar name={user.name} tint="dark" size="md" src={user.avatarUrl} /></Link>
 		</div>
 	);
 }
@@ -289,6 +323,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
 					</button>
 				</div>
 				<NavLinks onNavigate={onClose} />
+				<div className="mt-1 border-t border-white/10 pt-1"><HelpMenu light onDone={onClose} /></div>
 				{orgsAvailable.length > 1 ? (
 					<div className="mt-2 border-t border-white/10 pt-2">
 						<div className="px-3.5 pt-1 pb-1.5 text-[11px] font-semibold tracking-wider text-on-dark-muted uppercase">Organisation</div>
@@ -320,7 +355,7 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
 function MobileTabBar({ orgSlug }: { orgSlug: string }) {
 	const unread = useUnread();
 	return (
-		<nav className="fixed inset-x-0 bottom-0 z-30 flex h-[calc(var(--spacing-tabbar)+env(safe-area-inset-bottom))] justify-around border-t border-border bg-white px-2 pt-2 pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label="Primary">
+		<nav className="fixed inset-x-0 bottom-0 z-30 flex h-[calc(var(--spacing-tabbar)+env(safe-area-inset-bottom))] justify-around border-t border-border bg-white px-2 pt-2 pb-[env(safe-area-inset-bottom)] lg:hidden" aria-label="Primary" data-tour="tabbar">
 			{mobileTabs.map((t) => (
 				<Link key={t.to} to={`/$org/${t.to}` as '/$org/dashboard'} params={{ org: orgSlug }} search={{}} className="relative flex w-16 flex-col items-center gap-1 text-[11px] text-t2" activeProps={{ className: 'font-semibold text-brand-900' }}>
 					{({ isActive }) => (

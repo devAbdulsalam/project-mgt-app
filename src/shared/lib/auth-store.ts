@@ -40,6 +40,7 @@ interface AuthState {
 	verifyOtp: (code: string) => Promise<Org>;
 	resendOtp: () => Promise<void>;
 	switchOrg: (orgId: string) => void;
+	updateUser: (patch: Partial<User>) => void;
 	logout: () => void;
 
 	updateSignup: (patch: Partial<SignupDraft>) => void;
@@ -104,6 +105,11 @@ export const useAuthStore = create<AuthState>()(
 			switchOrg(orgId) {
 				const org = get().availableOrgs.find((o) => o.id === orgId);
 				if (org) set({ org });
+			},
+
+			updateUser(patch) {
+				const user = get().user;
+				if (user) set({ user: { ...user, ...patch } });
 			},
 
 			logout() {

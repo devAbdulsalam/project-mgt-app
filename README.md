@@ -23,9 +23,10 @@ This repository contains the **front end only**. It currently runs against an in
 - **Knowledge base**: categories, search, public / internal / draft filter, create, edit, publish and delete articles, helpful votes, related articles.
 - **Reports**: service desk and projects reports with date range, client and region filters, compare toggle, CSV export and monthly scheduling.
 - **Settings**: 18 sections (general, branding, team and roles, billing, security and SSO, audit log, channels, SLA policies, ticket types, business hours, automation, CSAT, contract plans, invoicing, client portal, integrations, API keys and webhooks, NDPR export) with saved state.
+- **App tour**: after signup and on every sign-in (until completed or switched off) users choose between an opening video tour and a clickable tour, or skip. The video is a scripted, captioned player with 11 chapters; the clickable tour spotlights 25 steps across every section, navigating page to page, with keyboard control, chapter jumping and resume. Progress is kept in `localStorage` (`ledgedesk.tour`).
+- **My account** (`/:org/me`): profile photo upload (resized client-side), personal details, display name for client replies, verified email and mobile, base location, languages, signature, security and password, two-step verification, availability and shifts, out of office, keyboard shortcuts. Mobile profile tab matches the engineer design.
 - **Responsive**: collapsible sidebar and top bar on desktop; app bar, drawer, and bottom tab bar on mobile.
 
-The only placeholder left is the mobile Profile tab (`/:org/me`).
 
 ## Tech stack
 
@@ -99,6 +100,13 @@ The account `amr.hassan@alrashidi.ae` belongs to two organisations and shows the
 - `/dev/login-as?stage=otp` lands on the OTP step.
 - `/dev/login-as?stage=verify|workspace|team` lands on a given signup step.
 - `/dev/login-as?email=<address>&to=/kolanut/tickets` signs in as a specific user and redirects.
+- `/dev/login-as?to=/kolanut/dashboard?tour=choice|video|interactive` opens the app tour in a given mode.
+
+## App tour
+
+- **Entry points**: the choice dialog opens at the end of signup (`?tour=choice`) and after each sign-in until the tour is completed or *Don't show this again* / the Settings switch turns it off. It has a *Skip for now* button. Settings → General also has an App tour card, and the `?` Help menu (desktop top bar, mobile drawer) offers *Take the clickable tour*, *Watch the opening video* and *Choose how to learn*.
+- **Video tour**: `src/features/tour/VideoTour.tsx`. Without a real video it plays scripted chapters with captions and illustrated screens. Set `VITE_TOUR_VIDEO_URL` to an MP4/WebM URL to play a real recording instead; chapter timings in `content.ts` become seek points.
+- **Clickable tour**: `src/features/tour/TourOverlay.tsx` drives a spotlight over elements tagged `data-tour="<id>"`. Steps live in `src/features/tour/content.ts`; each has a route, a target (with an optional mobile target) and a preferred placement. Add a step by tagging an element and appending to `steps`.
 
 ## Available scripts
 
@@ -140,7 +148,7 @@ To reset all demo data, close the tab or clear site storage in your browser dev 
 src/
 ├─ app/            App root and router
 ├─ features/       One folder per feature: auth, dashboard, inbox, tickets, projects, boards,
-│                  clients, assets, visits, kb, reports, settings, notifications, team, search
+│                  clients, assets, visits, kb, reports, settings, notifications, team, search, tour, profile
 ├─ shared/
 │  ├─ layouts/     AuthShell, AppShell (sidebar + top bar on desktop; drawer + tab bar on mobile)
 │  ├─ ui/          Button, Field, Input, Select, Pill, Avatar, Dialog, Tabs, Toaster, ...

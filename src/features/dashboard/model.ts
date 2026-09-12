@@ -12,6 +12,7 @@ export const dashboardSearchSchema = z.object({
 	welcome: z.coerce.number().optional(),
 	range: z.enum(ranges).default('7d'),
 	panel: z.string().optional(),
+	tour: z.enum(['choice', 'video', 'interactive']).optional(),
 });
 export type DashboardSearch = z.infer<typeof dashboardSearchSchema>;
 

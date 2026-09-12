@@ -8,6 +8,7 @@ import { maskPhone } from '@/shared/lib/format';
 import { users } from '@/mocks/data';
 import { AuthHeading, FormError } from '../components/AuthHeading';
 import { useCountdown } from '../hooks/useCountdown';
+import { useTourStore } from '@/features/tour/store';
 
 export function LoginOtpPage() {
 	const navigate = useNavigate();
@@ -34,6 +35,7 @@ export function LoginOtpPage() {
 		setError(undefined);
 		try {
 			const org = await verifyOtp(code);
+			useTourStore.getState().flagLogin();
 			navigate({ to: redirect ?? '/$org/dashboard', params: { org: org.slug }, replace: true });
 		} catch (e) {
 			setError(e instanceof AuthError ? e.message : 'Something went wrong');

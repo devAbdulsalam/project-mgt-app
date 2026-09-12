@@ -180,7 +180,7 @@ export function TicketPanel({ ticket, onClose, orgSlug }: { ticket: Ticket; onCl
 					<h2 className="mt-2 text-[22px] leading-tight font-semibold">
 						<TitleEditor ticket={ticket} />
 					</h2>
-					<div className="mt-3 flex flex-wrap items-center gap-2.5">
+					<div className="mt-3 flex flex-wrap items-center gap-2.5" data-tour="ticket-status">
 						<StatusMenu ticket={ticket} />
 						{a.canResolve ? (
 							<Button variant="soft" size="md" onClick={a.resolve}>
@@ -217,7 +217,7 @@ export function TicketPanel({ ticket, onClose, orgSlug }: { ticket: Ticket; onCl
 						<div className="space-y-7">
 							<DescriptionBlock ticket={ticket} />
 							<LabelsEditor ticket={ticket} />
-							<SubtaskList ticket={ticket} />
+							<div data-tour="ticket-subtasks"><SubtaskList ticket={ticket} /></div>
 							<LinkedIssues ticket={ticket} orgSlug={orgSlug} />
 							<section>
 								<LineTabs<Tab>
@@ -233,7 +233,7 @@ export function TicketPanel({ ticket, onClose, orgSlug }: { ticket: Ticket; onCl
 									{tab === 'comments' ? (
 										<div className="space-y-4">
 											<CommentList ticket={ticket} now={now} />
-											<CommentComposer ticket={ticket} />
+											<div data-tour="ticket-composer"><CommentComposer ticket={ticket} /></div>
 										</div>
 									) : tab === 'activity' ? (
 										<ActivityList ticket={ticket} now={now} />
@@ -244,7 +244,7 @@ export function TicketPanel({ ticket, onClose, orgSlug }: { ticket: Ticket; onCl
 							</section>
 						</div>
 					</div>
-					<div className="w-[300px] shrink-0 overflow-y-auto border-l border-border px-5 py-4">
+					<div className="w-[300px] shrink-0 overflow-y-auto border-l border-border px-5 py-4" data-tour="ticket-props">
 						<PropertyList ticket={ticket} now={now} orgSlug={orgSlug} />
 					</div>
 				</div>
@@ -281,7 +281,7 @@ export function TicketMobilePage({ ticket, onClose, orgSlug }: { ticket: Ticket;
 				<h1 className="mt-1.5 text-[22px] leading-tight font-semibold">
 					<TitleEditor ticket={ticket} className="text-white" />
 				</h1>
-				<div className="mt-3 flex flex-wrap items-center gap-2">
+				<div className="mt-3 flex flex-wrap items-center gap-2" data-tour="ticket-status">
 					<StatusMenu ticket={ticket} dark />
 					<PriorityPill priority={ticket.priority} long className="h-8 px-3 text-[13px]" />
 					{ticket.sla ? (
@@ -293,7 +293,7 @@ export function TicketMobilePage({ ticket, onClose, orgSlug }: { ticket: Ticket;
 			</header>
 
 			<div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 pb-40">
-				<div className="rounded-md bg-white px-4 py-1 shadow-card">
+				<div className="rounded-md bg-white px-4 py-1 shadow-card" data-tour="m-props">
 					<PropertyList ticket={ticket} now={now} orgSlug={orgSlug} limit={5} />
 				</div>
 				<div className="rounded-md bg-white p-4 shadow-card">
@@ -312,7 +312,7 @@ export function TicketMobilePage({ ticket, onClose, orgSlug }: { ticket: Ticket;
 							<>
 								<DescriptionBlock ticket={ticket} />
 								<LabelsEditor ticket={ticket} />
-								<SubtaskList ticket={ticket} />
+								<div data-tour="ticket-subtasks"><SubtaskList ticket={ticket} /></div>
 								<LinkedIssues ticket={ticket} orgSlug={orgSlug} />
 							</>
 						) : tab === 'comments' ? (
@@ -347,7 +347,7 @@ export function TicketMobilePage({ ticket, onClose, orgSlug }: { ticket: Ticket;
 						items={[15, 30, 60].map((m) => ({ key: String(m), label: `+ ${m} min`, onSelect: () => a.log(m) }))}
 					/>
 				</div>
-				<CommentComposer ticket={ticket} />
+				<div data-tour="ticket-composer"><CommentComposer ticket={ticket} /></div>
 			</div>
 		</div>
 	);

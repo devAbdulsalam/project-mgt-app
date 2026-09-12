@@ -126,7 +126,7 @@ export function ProjectsPage() {
 			{list.length === 0 ? (
 				<Card className="mt-4"><EmptyState title="No projects match" action={<Button variant="primary" onClick={() => setCreating(true)}>Create a project</Button>} /></Card>
 			) : search.view === 'table' ? (
-				<Card className="mt-4 overflow-x-auto">
+				<Card className="mt-4 overflow-x-auto" data-tour="projects-list">
 					<table className="w-full text-[13px]">
 						<thead><tr className="bg-muted text-left text-[11px] font-semibold tracking-wider text-t2 uppercase"><th className="px-4 py-3">Project</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Lead</th><th className="px-4 py-3">Open</th><th className="px-4 py-3">Members</th><th className="px-4 py-3">Sprint</th><th className="w-10" /></tr></thead>
 						<tbody>
@@ -137,7 +137,7 @@ export function ProjectsPage() {
 					</table>
 				</Card>
 			) : (
-				<div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+				<div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3" data-tour="projects-list">
 					{list.map((p) => (
 						<ProjectCard key={p.id} p={p} orgSlug={org.slug} now={now} />
 					))}
