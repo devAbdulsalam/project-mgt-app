@@ -10,6 +10,11 @@ import { projectsSearchSchema, boardSearchSchema } from '@/features/projects/mod
 import { notificationsSearchSchema } from '@/features/notifications/model';
 import { teamSearchSchema } from '@/features/team/model';
 import { dashboardSearchSchema, type DashboardSearch } from '@/features/dashboard/model';
+import { clientsSearchSchema, clientDetailSearchSchema } from '@/features/clients/model';
+import { assetsSearchSchema } from '@/features/assets/model';
+import { visitsSearchSchema } from '@/features/visits/model';
+import { kbSearchSchema } from '@/features/kb/model';
+import { reportsSearchSchema } from '@/features/reports/model';
 
 // Route-level code splitting: each page is its own chunk.
 const LoginPage = lazyRouteComponent(() => import('@/features/auth/pages/LoginPage'), 'LoginPage');
@@ -34,6 +39,15 @@ const ProjectStubTab = lazyRouteComponent(() => import('@/features/projects/page
 const NotificationsPage = lazyRouteComponent(() => import('@/features/notifications/pages/NotificationsPage'), 'NotificationsPage');
 const TeamPage = lazyRouteComponent(() => import('@/features/team/pages/TeamPage'), 'TeamPage');
 const RolesPage = lazyRouteComponent(() => import('@/features/team/pages/RolesPage'), 'RolesPage');
+const BoardsPage = lazyRouteComponent(() => import('@/features/boards/BoardsPage'), 'BoardsPage');
+const ClientsPage = lazyRouteComponent(() => import('@/features/clients/pages/ClientsPage'), 'ClientsPage');
+const ClientDetailPage = lazyRouteComponent(() => import('@/features/clients/pages/ClientDetailPage'), 'ClientDetailPage');
+const AssetsPage = lazyRouteComponent(() => import('@/features/assets/AssetsPage'), 'AssetsPage');
+const VisitsPage = lazyRouteComponent(() => import('@/features/visits/VisitsPage'), 'VisitsPage');
+const KbPage = lazyRouteComponent(() => import('@/features/kb/KbPages'), 'KbPage');
+const KbArticlePage = lazyRouteComponent(() => import('@/features/kb/KbPages'), 'KbArticlePage');
+const ReportsPage = lazyRouteComponent(() => import('@/features/reports/ReportsPage'), 'ReportsPage');
+const SettingsPage = lazyRouteComponent(() => import('@/features/settings/SettingsPage'), 'SettingsPage');
 
 const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFoundPage, pendingComponent: RouteFallback });
 
@@ -146,7 +160,18 @@ const notificationsRoute = createRoute({ getParentRoute: () => orgRoute, path: '
 const usersRoute = createRoute({ getParentRoute: () => orgRoute, path: 'users', validateSearch: (input: Partial<z.infer<typeof teamSearchSchema>> & SearchSchemaInput) => teamSearchSchema.parse(input), component: TeamPage });
 const rolesRoute = createRoute({ getParentRoute: () => orgRoute, path: 'users/roles', component: RolesPage });
 
-const stubSections = ['boards', 'customers', 'assets', 'visits', 'kb', 'reports', 'settings', 'me'] as const;
+const boardsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'boards', component: BoardsPage });
+const clientsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'customers', validateSearch: (input: Partial<z.infer<typeof clientsSearchSchema>> & SearchSchemaInput) => clientsSearchSchema.parse(input), component: ClientsPage });
+const clientDetailRoute = createRoute({ getParentRoute: () => orgRoute, path: 'customers/$clientId', validateSearch: (input: Partial<z.infer<typeof clientDetailSearchSchema>> & SearchSchemaInput) => clientDetailSearchSchema.parse(input), component: ClientDetailPage });
+const assetsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'assets', validateSearch: (input: Partial<z.infer<typeof assetsSearchSchema>> & SearchSchemaInput) => assetsSearchSchema.parse(input), component: AssetsPage });
+const visitsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'visits', validateSearch: (input: Partial<z.infer<typeof visitsSearchSchema>> & SearchSchemaInput) => visitsSearchSchema.parse(input), component: VisitsPage });
+const kbRoute = createRoute({ getParentRoute: () => orgRoute, path: 'kb', validateSearch: (input: Partial<z.infer<typeof kbSearchSchema>> & SearchSchemaInput) => kbSearchSchema.parse(input), component: KbPage });
+const kbArticleRoute = createRoute({ getParentRoute: () => orgRoute, path: 'kb/$slug', component: KbArticlePage });
+const reportsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'reports', validateSearch: (input: Partial<z.infer<typeof reportsSearchSchema>> & SearchSchemaInput) => reportsSearchSchema.parse(input), component: ReportsPage });
+const settingsIndexRoute = createRoute({ getParentRoute: () => orgRoute, path: 'settings', beforeLoad: ({ params }) => { throw redirect({ to: '/$org/settings/$section', params: { org: params.org, section: 'general' }, replace: true }); } });
+const settingsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'settings/$section', component: SettingsPage });
+
+const stubSections = ['me'] as const;
 const stubRoutes = stubSections.map((section) => createRoute({ getParentRoute: () => orgRoute, path: section, component: () => <PlaceholderPage section={section} /> }));
 
 const routeTree = rootRoute.addChildren([
@@ -171,6 +196,16 @@ const routeTree = rootRoute.addChildren([
 			notificationsRoute,
 			usersRoute,
 			rolesRoute,
+			boardsRoute,
+			clientsRoute,
+			clientDetailRoute,
+			assetsRoute,
+			visitsRoute,
+			kbRoute,
+			kbArticleRoute,
+			reportsRoute,
+			settingsIndexRoute,
+			settingsRoute,
 			...stubRoutes,
 		]),
 	]),

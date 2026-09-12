@@ -79,14 +79,14 @@ export function ClientDetailPage() {
 
 			{search.tab === 'overview' ? (
 				<div className="mt-5 space-y-4">
-					<div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
+					<div className="grid grid-cols-2 gap-4 xl:grid-cols-5 [&>*]:min-w-0">
 						<StatTile label="Open tickets" value={<span className="flex items-center gap-2">{open.length}{p1 ? <Pill tone="critical">{p1} P1</Pill> : null}</span>} sub={`Avg ${(tickets.length / 10).toFixed(1)} / day`} />
 						<StatTile label="SLA · 90 days" value={client.healthPct ? `${client.healthPct}%` : '—'} sub={client.healthPct ? (client.healthPct >= 92 ? 'Above 92% target' : 'Below 92% target') : 'No data yet'} subTone={client.healthPct && client.healthPct >= 92 ? 'good' : 'bad'} />
 						<div className="card p-5"><div className="text-[11px] font-semibold tracking-wider text-t2 uppercase">Retainer hours</div><div className="tabular mt-3 text-[28px] leading-none font-semibold">{client.hoursUsed} / {client.hoursIncluded}h</div><ProgressBar value={client.hoursIncluded ? (client.hoursUsed / client.hoursIncluded) * 100 : 0} color={client.hoursUsed > client.hoursIncluded ? '#d93f3f' : undefined} className="mt-3" label="Retainer hours" /></div>
 						<StatTile label="CSAT" value={client.csat ?? '—'} sub={client.csatCount ? `${client.csatCount} ratings` : 'No ratings yet'} />
 						<StatTile label="Outstanding" value={<span className={outstanding ? 'text-high-fg' : undefined}>{formatNairaShort(outstanding)}</span>} sub={overdue ? `Invoice ${overdue.number} · ${Math.round((now - overdue.dueAt) / 86_400_000)} days overdue` : 'Nothing overdue'} subTone={overdue ? 'bad' : 'good'} />
 					</div>
-					<div className="grid gap-4 xl:grid-cols-3">
+					<div className="grid gap-4 xl:grid-cols-3 [&>*]:min-w-0">
 						<Card className="p-5">
 							<CardHeader title="Contract & SLA" action={<button type="button" className="text-[13px] text-brand-600 hover:underline" onClick={() => setSearch({ tab: 'contract' })}>Edit</button>} />
 							<dl className="mt-2 divide-y divide-border text-[13px]">
@@ -141,7 +141,7 @@ export function ClientDetailPage() {
 			) : null}
 
 			{search.tab === 'sites' ? (
-				<div className="mt-5 grid gap-4 xl:grid-cols-2">
+				<div className="mt-5 grid gap-4 xl:grid-cols-2 [&>*]:min-w-0">
 					<Card className="p-5"><CardHeader title="Sites" action={<Button size="sm" onClick={() => setSiteDialog(true)}><Plus size={13} /> Add site</Button>} /><ul className="mt-3 divide-y divide-border">{client.siteList.map((s) => <li key={s.id} className="flex items-start gap-3 py-3 text-[13px]"><div className="min-w-0 flex-1"><b className="block">{s.name}</b><span className="block text-xs text-t2">{s.address}</span><span className="text-xs text-t2">Contact: {s.contactName}</span></div><div className="text-right text-xs text-t2"><b className="block text-sm text-t1">{s.assets} assets</b>{s.open} open{s.note ? <Pill tone="critical" className="ms-2">{s.note}</Pill> : null}</div></li>)}</ul></Card>
 					<Card className="p-5"><CardHeader title="Contacts" action={<Button size="sm" onClick={() => setContactDialog(true)}><Plus size={13} /> Add contact</Button>} /><ul className="mt-3 divide-y divide-border">{client.contacts.map((k) => <li key={k.id} className="flex items-center gap-3 py-3 text-[13px]"><Avatar name={k.name} tint="teal" /><div className="min-w-0 flex-1"><b className="block">{k.name}{k.primary ? <Pill tone="teal" className="ms-2">Primary</Pill> : null}</b><span className="text-xs text-t2">{k.role}</span><div className="text-xs text-t2">{k.phone ?? ''}{k.phone && k.email ? ' · ' : ''}{k.email ?? ''}</div></div><Pill tone="closed">{k.channel}</Pill></li>)}</ul></Card>
 				</div>
@@ -186,7 +186,7 @@ export function ClientDetailPage() {
 			) : null}
 
 			{search.tab === 'notes' ? (
-				<div className="mt-5 grid gap-4 xl:grid-cols-[1fr_380px]">
+				<div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px] [&>*]:min-w-0">
 					<Card className="p-5"><CardHeader title="Account notes" sub="Internal, never shown to the client" /><ul className="mt-3 space-y-3">{client.notes.length === 0 ? <li className="text-[13px] text-t3">No notes yet.</li> : client.notes.map((n) => <li key={n.id} className="rounded-[10px] bg-muted px-3.5 py-3 text-[13px]"><div className="mb-1 text-xs text-t2"><b className="text-t1">{n.authorName}</b> · {relativeTime(n.at, now)}</div>{n.body}</li>)}</ul></Card>
 					<Card className="p-5"><CardHeader title="Add a note" /><div className="mt-3"><NoteComposer clientId={client.id} /></div></Card>
 				</div>

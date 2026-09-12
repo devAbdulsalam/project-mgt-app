@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { useForm } from 'react-hook-form';
-import { AlertTriangle, CalendarDays, CheckCircle2, ChevronDown, Circle, HelpCircle, MessageSquare, Plus, Zap, X, Minus } from 'lucide-react';
+import { AlertTriangle, CalendarDays, CheckCircle2, ChevronDown, Circle, HelpCircle, MessageSquare, Plus, Zap, Minus } from 'lucide-react';
 import { AppShell, MobileHeader } from '@/shared/layouts/AppShell';
 import { Avatar, Button, Card, Dialog, EmptyState, Field, Input, Menu, Pill, PriorityPill, Select } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
@@ -10,13 +10,14 @@ import { formatTime, useNow } from '@/shared/lib/time';
 import { toast } from '@/shared/lib/toast-store';
 import { formatNaira, memberById, useDb } from '@/mocks/db';
 import { statusCategory } from '@/mocks/seed';
-import type { Visit, VisitStatus } from '@/mocks/types';
+import type { VisitStatus } from '@/mocks/types';
+import type { PillTone } from '@/shared/ui/Pill';
 import { TicketDetail } from '@/features/tickets/components/TicketDetail';
 import { priorityColor, type VisitsSearch } from './model';
 
 const DAY_START = 8;
 const DAY_END = 18;
-const statusTone = (s: VisitStatus) => (s === 'Done' || s === 'On site' ? 'done' : s === 'En route' ? 'teal' : s === 'Scheduled' ? 'progress' : 'open') as const;
+const statusTone = (s: VisitStatus): PillTone => (s === 'Done' || s === 'On site' ? 'done' : s === 'En route' ? 'teal' : s === 'Scheduled' ? 'progress' : 'open');
 const sameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString();
 
 function pct(ts: number) {
@@ -31,12 +32,10 @@ export function VisitsPage() {
 	const visits = useDb((s) => s.visits);
 	const members = useDb((s) => s.members);
 	const clients = useDb((s) => s.clientAccounts);
-	const tickets = useDb((s) => s.tickets);
 	const scheduleVisit = useDb((s) => s.scheduleVisit);
 	const unscheduleVisit = useDb((s) => s.unscheduleVisit);
 	const advanceVisit = useDb((s) => s.advanceVisit);
 	const approvePart = useDb((s) => s.approvePart);
-	const createVisit = useDb((s) => s.createVisit);
 	const now = useNow(30_000);
 	const [dragId, setDragId] = useState<string>();
 	const [overEng, setOverEng] = useState<string>();
@@ -46,7 +45,7 @@ export function VisitsPage() {
 	const region = search.region ?? 'Lagos';
 	const regions = Array.from(new Set(visits.map((v) => v.region)));
 	const engineers = members.filter((m) => m.status === 'Active' && (m.role === 'Field engineer' || m.role === 'Support agent'));
-	const regionEngineers = engineers.filter((m) => region === 'All' || m.base.startsWith(region) || (region === 'Lagos' && m.base.startsWith('Remote')) || m.role === 'Support agent');
+	const regionEngineers = engineers.filter((m) => region === 'All' || m.base.startsWith(region) || (region === 'Lagos' && m.base.startsWith('Remote')) || m.role === 'Support agent' || visits.some((v) => v.engineerId === m.id && v.region === region && v.startAt && sameDay(v.startAt, now)));
 	const unscheduled = visits.filter((v) => v.status === 'Unscheduled' && (region === 'All' || v.region === region) && (!search.client || v.clientId === search.client));
 	const todays = visits.filter((v) => v.startAt && sameDay(v.startAt, now) && (region === 'All' || v.region === region));
 	const current = visits.find((v) => v.id === search.visit) ?? todays.find((v) => v.status === 'On site') ?? todays[0];
@@ -206,9 +205,6 @@ export function VisitsPage() {
 			{search.panel ? <TicketDetail ticketKey={search.panel} orgSlug={org.slug} onClose={() => setSearch({ panel: undefined })} /> : null}
 		</AppShell>
 	);
-
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	function unusedGuard(_: Visit) { return tickets.length; }
 }
 
 function ScheduleVisitDialog({ open, onClose, onCreated, defaultClient }: { open: boolean; onClose: () => void; onCreated: (id: string) => void; defaultClient?: string }) {
@@ -242,4 +238,3 @@ function ScheduleVisitDialog({ open, onClose, onCreated, defaultClient }: { open
 	);
 }
 
-export { X };

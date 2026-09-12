@@ -16,9 +16,16 @@ This repository contains the **front end only**. It currently runs against an in
 - **Notifications**: filters, mark read, SLA escalate / snooze, delivery preferences, browser push opt-in, bell popover.
 - **Team**: member directory, member panel (role, teams, capacity), invite dialog, deactivate / reactivate, roles matrix.
 - **Command palette** (`⌘K` / `Ctrl+K`): navigation, ticket search, contextual actions, and query syntax such as `status:open assignee:me priority>=high`.
+- **Boards**: one card per project board with live column counts and quick open.
+- **Clients**: account list with KPIs, filters, sort and CSV export; add client; client detail with overview, tickets, sites and contacts, assets, editable contract and SLA, invoices (remind, mark paid), visits and notes.
+- **Assets**: inventory with type tabs, filters and search; detail panel with QR label, history, inline edit and firmware updates; add asset, CSV import, print labels, raise a ticket from an asset.
+- **Visits**: dispatch board with unscheduled queue, drag-onto-engineer scheduling, auto-route, map pins, visit checkpoints, parts approval, reassign, schedule dialog and week view.
+- **Knowledge base**: categories, search, public / internal / draft filter, create, edit, publish and delete articles, helpful votes, related articles.
+- **Reports**: service desk and projects reports with date range, client and region filters, compare toggle, CSV export and monthly scheduling.
+- **Settings**: 18 sections (general, branding, team and roles, billing, security and SSO, audit log, channels, SLA policies, ticket types, business hours, automation, CSAT, contract plans, invoicing, client portal, integrations, API keys and webhooks, NDPR export) with saved state.
 - **Responsive**: collapsible sidebar and top bar on desktop; app bar, drawer, and bottom tab bar on mobile.
 
-Boards, Clients, Assets, Visits, Knowledge base, Reports, and Settings are placeholder pages for now.
+The only placeholder left is the mobile Profile tab (`/:org/me`).
 
 ## Tech stack
 
@@ -132,13 +139,13 @@ To reset all demo data, close the tab or clear site storage in your browser dev 
 ```
 src/
 ├─ app/            App root and router
-├─ features/       One folder per feature: auth, dashboard, inbox, tickets, projects,
-│                  notifications, team, search, placeholder, system
+├─ features/       One folder per feature: auth, dashboard, inbox, tickets, projects, boards,
+│                  clients, assets, visits, kb, reports, settings, notifications, team, search
 ├─ shared/
 │  ├─ layouts/     AuthShell, AppShell (sidebar + top bar on desktop; drawer + tab bar on mobile)
 │  ├─ ui/          Button, Field, Input, Select, Pill, Avatar, Dialog, Tabs, Toaster, ...
 │  └─ lib/         auth-store, ui-store, palette-store, toast-store, time, csv, format
-├─ mocks/          types.ts (domain model), seed.ts (demo data), db.ts (Zustand store), data.ts (dashboard series)
+├─ mocks/          types.ts (domain model), seed.ts + seed-ops.ts (demo data), db.ts (Zustand store), data.ts (dashboard series)
 └─ styles/         tokens.css (Tailwind theme and base styles)
 ```
 
