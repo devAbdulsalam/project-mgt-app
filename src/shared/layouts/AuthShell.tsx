@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { TicketWatermark, Wordmark } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
+import { Link } from '@tanstack/react-router';
 
 /**
  * Split auth layout: dark brand panel on the left (hidden below lg), form on the right.
@@ -11,18 +12,38 @@ export function AuthShell({ panel, children, wide, alignTop, footer, badge }: { 
 		<div className="grid min-h-full lg:grid-cols-2">
 			<aside className="relative hidden flex-col overflow-hidden bg-[linear-gradient(160deg,var(--color-brand-900),var(--color-brand-950))] p-12 text-white lg:flex xl:p-14">
 				<div className="flex items-center">
-					<Wordmark />
-					{badge ? <span className="ml-auto text-[11px] text-on-dark-muted">{badge}</span> : null}
+					<Link to="/" className="shrink-0" aria-label="Ledge Desk home">
+						<Wordmark light={false} />
+					</Link>
+					{badge ? (
+						<span className="ml-auto text-[11px] text-on-dark-muted">
+							{badge}
+						</span>
+					) : null}
 				</div>
 				<div className="my-auto max-w-[480px]">{panel}</div>
-				<div className="text-[11px] text-on-dark-muted">{footer ?? '© 2026 Ledge Desk · NDPR compliant · SOC 2 Type II'}</div>
+				<div className="text-[11px] text-on-dark-muted">
+					{footer ?? '© 2026 Ledge Desk · NDPR compliant · SOC 2 Type II'}
+				</div>
 				<TicketWatermark />
 			</aside>
-			<main className={cn('flex flex-col px-4 py-8 sm:px-10', alignTop ? 'lg:justify-start lg:pt-12' : 'lg:justify-center')}>
+			<main
+				className={cn(
+					'flex flex-col px-4 py-8 sm:px-10',
+					alignTop ? 'lg:justify-start lg:pt-12' : 'lg:justify-center',
+				)}
+			>
 				<div className="mb-8 flex justify-center lg:hidden">
 					<Wordmark light={false} />
 				</div>
-				<div className={cn('mx-auto w-full', wide ? 'max-w-[520px]' : 'max-w-[400px]')}>{children}</div>
+				<div
+					className={cn(
+						'mx-auto w-full',
+						wide ? 'max-w-[520px]' : 'max-w-[400px]',
+					)}
+				>
+					{children}
+				</div>
 			</main>
 		</div>
 	);

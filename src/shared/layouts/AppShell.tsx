@@ -135,16 +135,19 @@ function NavLinks({
 	collapsed,
 	onNavigate,
 	className,
+	flow,
 }: {
 	collapsed?: boolean;
 	onNavigate?: () => void;
 	className?: string;
+	/** Desktop sidebar: active item flows out of the content area (canvas tab with concave curves). */
+	flow?: boolean;
 }) {
 	const org = useAuthStore((s) => s.org)!;
 	const unread = useUnread();
 	return (
 		<nav
-			className={cn('flex-1 overflow-y-auto', className)}
+			className={cn('flex-1', flow ? 'overflow-visible' : 'overflow-y-auto', className)}
 			aria-label="Primary"
 			data-tour={collapsed ? undefined : 'nav'}
 		>
@@ -159,11 +162,10 @@ function NavLinks({
 					className={cn(
 						'relative mb-0.5 flex items-center gap-3 rounded-[10px] px-3.5 py-[11px] text-sm text-[#e6eef1] hover:bg-white/5',
 						collapsed && 'justify-center px-0',
+						flow
+							? 'nav-flow my-1 data-[status=active]:font-semibold data-[status=active]:text-brand-900 data-[status=active]:hover:bg-canvas'
+							: 'data-[status=active]:bg-brand-800 data-[status=active]:font-semibold data-[status=active]:text-white data-[status=active]:hover:bg-brand-800',
 					)}
-					activeProps={{
-						className:
-							'bg-brand-800 font-semibold text-white hover:bg-brand-800',
-					}}
 				>
 					<item.icon
 						size={18}
@@ -177,7 +179,7 @@ function NavLinks({
 					{item.badge && unread ? (
 						<span
 							className={cn(
-								'rounded-full bg-danger px-1.5 py-px text-[10px] font-bold text-white',
+								'nav-badge rounded-full bg-danger px-1.5 py-px text-[10px] font-bold text-white',
 								collapsed && 'absolute top-1 right-2',
 							)}
 							aria-label={`${unread} unread`}
@@ -281,7 +283,7 @@ function Sidebar() {
 	return (
 		<aside
 			className={cn(
-				'hidden shrink-0 flex-col bg-[linear-gradient(180deg,var(--color-brand-900),var(--color-brand-950))] px-3 py-4 text-white transition-[width] lg:flex',
+				'hidden shrink-0 flex-col overflow-x-hidden overflow-y-auto bg-[linear-gradient(180deg,var(--color-brand-900),var(--color-brand-950))] px-3 py-4 text-white transition-[width] lg:flex',
 				collapsed ? 'w-16' : 'w-sidebar',
 			)}
 		>
@@ -347,7 +349,7 @@ function Sidebar() {
 				) : null}
 			</div>
 
-			<NavLinks collapsed={collapsed} />
+			<NavLinks collapsed={collapsed} flow />
 			<div className="mt-2">
 				<UserBlock collapsed={collapsed} />
 			</div>

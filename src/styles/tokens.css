@@ -102,6 +102,37 @@
   .kbd { font-family: var(--font-mono); font-size: 11px; background: var(--color-muted); border: 1px solid var(--color-border-strong); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; color: var(--color-t2); }
 }
 
+/* Active sidebar item that "flows" out of the content area: canvas-coloured tab flush with the
+   sidebar edge, with concave curves above and below (see designs/nav.jpg). */
+.nav-flow[data-status='active'] {
+  position: relative;
+  background: var(--color-canvas);
+  color: var(--color-brand-900);
+  margin-inline-end: -12px;
+  padding-inline-end: 24px;
+  border-radius: 12px 0 0 12px;
+}
+.nav-flow[data-status='active']::before,
+.nav-flow[data-status='active']::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+.nav-flow[data-status='active']::before {
+  top: -18px;
+  background: radial-gradient(circle at 0 0, transparent 17.5px, var(--color-canvas) 18px);
+}
+.nav-flow[data-status='active']::after {
+  bottom: -18px;
+  background: radial-gradient(circle at 0 100%, transparent 17.5px, var(--color-canvas) 18px);
+}
+.nav-flow[data-status='active'] .nav-badge {
+  background: var(--color-danger);
+}
+
 @keyframes shimmer { 0% { background-position: -400px 0 } 100% { background-position: 400px 0 } }
 .skeleton { background: linear-gradient(90deg, var(--color-muted) 25%, #f7f8fa 37%, var(--color-muted) 63%); background-size: 800px 100%; animation: shimmer 1.4s infinite linear; border-radius: 6px; }
 

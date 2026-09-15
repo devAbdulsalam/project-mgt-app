@@ -17,6 +17,7 @@ import { reportsSearchSchema } from '@/features/reports/model';
 import { profileSearchSchema } from '@/features/profile/model';
 
 // Route-level code splitting: each page is its own chunk.
+const LandingPage = lazyRouteComponent(() => import('@/features/marketing/pages/LandingPage'), 'LandingPage');
 const LoginPage = lazyRouteComponent(() => import('@/features/auth/pages/LoginPage'), 'LoginPage');
 const LoginOtpPage = lazyRouteComponent(() => import('@/features/auth/pages/LoginOtpPage'), 'LoginOtpPage');
 const SignupPage = lazyRouteComponent(() => import('@/features/auth/pages/SignupPage'), 'SignupPage');
@@ -56,14 +57,15 @@ const redirectSearch = z.object({ redirect: z.string().optional() });
 
 // ---------- Public / auth ----------
 
+// Public marketing landing page; signed-in users go straight to their dashboard.
 const indexRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: '/',
 	beforeLoad: () => {
 		const { status, org } = useAuthStore.getState();
 		if (status === 'authenticated' && org) throw redirect({ to: '/$org/dashboard', params: { org: org.slug }, search: {} });
-		throw redirect({ to: '/login', search: {} });
 	},
+	component: LandingPage,
 });
 
 const loginRoute = createRoute({
