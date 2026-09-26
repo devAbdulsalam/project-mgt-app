@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { cn } from '@/shared/lib/cn';
+import { useOverlayTransition } from '@/shared/lib/use-overlay-transition';
 
 /**
  * Modal dialog rendered in a portal. Traps Escape, locks body scroll, restores focus on close.
@@ -9,6 +10,7 @@ import { cn } from '@/shared/lib/cn';
  */
 export function Dialog({ open, onClose, title, children, footer, width = 'max-w-[1100px]', header, className }: { open: boolean; onClose: () => void; title?: ReactNode; children: ReactNode; footer?: ReactNode; width?: string; header?: ReactNode; className?: string }) {
 	const panelRef = useRef<HTMLDivElement>(null);
+	const { mounted, shown } = useOverlayTransition(open);
 
 	useEffect(() => {
 		if (!open) return;
@@ -28,16 +30,26 @@ export function Dialog({ open, onClose, title, children, footer, width = 'max-w-
 		};
 	}, [open, onClose]);
 
-	if (!open) return null;
+	if (!mounted) return null;
 
 	return createPortal(
-		<div className="fixed inset-0 z-50 flex items-stretch justify-center bg-[rgba(27,42,50,.35)] sm:items-center sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+		<div
+			className={cn('fixed inset-0 z-50 flex items-stretch justify-center sm:items-center sm:p-6', !shown && 'pointer-events-none')}
+			onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+		>
+			{/* Backdrop as its own layer so it can fade without also fading the panel; clicks fall through to the parent. */}
+			<div aria-hidden className={cn('pointer-events-none absolute inset-0 bg-[rgba(27,42,50,.35)] transition-opacity duration-200 ease-out', shown ? 'opacity-100' : 'opacity-0')} />
 			<div
 				ref={panelRef}
 				role="dialog"
 				aria-modal="true"
 				aria-label={typeof title === 'string' ? title : undefined}
-				className={cn('flex w-full max-h-full flex-col bg-white shadow-pop sm:max-h-[92vh] sm:rounded-[14px]', width, className)}
+				className={cn(
+					'relative flex w-full max-h-full flex-col bg-white shadow-pop transition-[opacity,transform] duration-200 ease-out sm:max-h-[92vh] sm:rounded-[14px]',
+					shown ? 'translate-y-0 scale-100 opacity-100' : 'opacity-0 max-sm:translate-y-6 sm:translate-y-2 sm:scale-[0.98]',
+					width,
+					className,
+				)}
 			>
 				<div className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-4 sm:px-7">
 					{title ? <h2 className="text-xl font-semibold">{title}</h2> : null}

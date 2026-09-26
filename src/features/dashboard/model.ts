@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { channelShare as share7d, kpis as kpis7d, slaSummary as sla7d, ticketsByChannel as series7d, topClients as clients7d, type Channel, type Kpi } from '@/mocks/data';
+import { totalClients, channelShare as share7d, kpis as kpis7d, slaSummary as sla7d, ticketsByChannel as series7d, topClients as clients7d, type Channel, type Kpi } from '@/mocks/data';
 import { clientById, slaAtRisk, slaRunning } from '@/mocks/db';
 import { statusCategory } from '@/mocks/seed';
 import type { Ticket } from '@/mocks/types';
@@ -56,13 +56,26 @@ function generateSeries(range: Range, now: number): SeriesPoint[] {
 	return out;
 }
 
+export interface SlaSummary {
+	/** Null when no SLA-bound ticket fell in the window, rather than a made-up figure. */
+	metPct: number | null;
+	breakdown: { key: string; label: string; pct: number; color: string }[];
+	byPriority: { label: string; pct: number | null }[];
+}
+
 export interface DashboardData {
 	kpis: Kpi[];
 	series: SeriesPoint[];
 	share: { channel: Channel; pct: number }[];
-	sla: typeof sla7d;
-	clients: { id: string; name: string; industry: string; tier: string; openTickets: number; healthPct: number }[];
+	sla: SlaSummary;
+	clients: { id: string; name: string; industry: string; tier: string; openTickets: number; healthPct: number | null }[];
+	/** How many clients exist, for the "View all" link. */
+	clientTotal: number;
 	needsAttention: Ticket[];
+	/** Client names by ticket key. Live tickets carry only a client id, and clients are not in the mock store. */
+	clientNames: Record<string, string>;
+	/** Live only: per-person open work. In mock mode the engineer card derives its own rows from the store. */
+	workload?: { id: string; name: string; openCount: number; points: number }[];
 	note: string;
 }
 
@@ -102,7 +115,7 @@ export function getDashboardData(range: Range, tickets: Ticket[], now: number): 
 
 	const note = range === 'today' ? 'Lunch dip expected 13:00 – 14:00' : range === '7d' ? 'Month-end spike expected 25 – 30 Sep (payroll & bank cut-off)' : range === '30d' ? 'Peak on 29 Aug: payroll cut-off · NEPA outage in Ikeja' : 'Quarter trend: WhatsApp share up from 49% to 58%';
 
-	return { kpis, series, share, sla, clients, needsAttention, note };
+	return { kpis, series, share, sla, clients, clientTotal: totalClients, needsAttention, clientNames: {}, note };
 }
 
 export function dashboardCsv(data: DashboardData, range: Range): (string | number)[][] {
@@ -117,12 +130,12 @@ export function dashboardCsv(data: DashboardData, range: Range): (string | numbe
 		[],
 		['SLA', 'Percent'],
 		...data.sla.breakdown.map((b) => [b.label, b.pct]),
-		...data.sla.byPriority.map((p) => [p.label, p.pct]),
+		...data.sla.byPriority.map((p) => [p.label, p.pct ?? '']),
 		[],
 		['Client', 'Industry', 'Tier', 'Open tickets', 'Contract health %'],
-		...data.clients.map((c) => [c.name, c.industry, c.tier, c.openTickets, c.healthPct]),
+		...data.clients.map((c) => [c.name, c.industry, c.tier, c.openTickets, c.healthPct ?? '']),
 		[],
 		['Needs attention', 'Title', 'Client', 'Priority', 'Status'],
-		...data.needsAttention.map((t) => [t.key, t.title, clientById(t.clientId)?.name ?? '', t.priority, t.status]),
+		...data.needsAttention.map((t) => [t.key, t.title, data.clientNames[t.key] ?? clientById(t.clientId)?.name ?? '', t.priority, t.status]),
 	];
 }

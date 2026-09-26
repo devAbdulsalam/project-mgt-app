@@ -6,6 +6,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { ArrowRight, Download, Link2, Plus, X } from 'lucide-react';
 import { Button, Input, Pill, Select, Steps, Wordmark } from '@/shared/ui';
 import { useAuthStore } from '@/shared/lib/auth-store';
+import { useLiveApi } from '@/shared/lib/live-api';
 import { cn } from '@/shared/lib/cn';
 import { inviteBases, inviteRoles, plans } from '@/mocks/data';
 import { AuthHeading, FormError } from '../components/AuthHeading';
@@ -27,13 +28,17 @@ export function SignupTeamPage() {
 	const draft = useAuthStore((s) => s.signup);
 	const updateSignup = useAuthStore((s) => s.updateSignup);
 	const completeSignup = useAuthStore((s) => s.completeSignup);
+	const org = useAuthStore((s) => s.org);
+	const live = useLiveApi();
 	const [error, setError] = useState<string>();
 	const [busy, setBusy] = useState(false);
 
 	useEffect(() => {
 		if (!draft.email) navigate({ to: '/signup', replace: true });
 		else if (!draft.phoneVerified) navigate({ to: '/signup/verify', replace: true });
-	}, [draft.email, draft.phoneVerified, navigate]);
+		// Nobody to invite into without a workspace; that step explains why.
+		else if (live && !org) navigate({ to: '/signup/workspace', replace: true });
+	}, [draft.email, draft.phoneVerified, live, navigate, org]);
 
 	const form = useForm<FormValues>({
 		resolver: zodResolver(schema),
@@ -57,8 +62,24 @@ export function SignupTeamPage() {
 		setError(undefined);
 		try {
 			updateSignup({ planId: form.getValues('planId') });
-			const org = await completeSignup();
-			navigate({ to: '/$org/dashboard', params: { org: org.slug }, replace: true, search: { welcome: skip ? undefined : inviteCount, tour: 'choice' } });
+			const outcome = await completeSignup(skip ? [] : form.getValues('invites'));
+
+			if (!outcome.org) {
+				navigate({ to: '/signup/workspace', replace: true });
+				return;
+			}
+
+			// Invites go out one at a time, so some can land and others bounce.
+			// Reporting the failures here is the only place the person can still
+			// act on them — the dashboard has no record of an invite never sent.
+			const failed = outcome.invites.filter((i) => !i.ok);
+			if (failed.length) {
+				setError(`${failed.map((f) => f.email).join(', ')} could not be invited. ${failed[0]!.message ?? ''}`.trim());
+				return;
+			}
+
+			const sent = outcome.invites.length;
+			navigate({ to: '/$org/dashboard', params: { org: outcome.org.slug }, replace: true, search: { welcome: skip ? undefined : sent || inviteCount, tour: 'choice' } });
 		} catch (e) {
 			setError(e instanceof Error ? e.message : 'Something went wrong');
 		} finally {

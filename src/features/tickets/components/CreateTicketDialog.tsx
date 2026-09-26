@@ -3,7 +3,7 @@ import { useForm, useWatch, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { AlertTriangle, ChevronDown, Paperclip, Shield, X } from 'lucide-react';
-import { Button, Checkbox, Dialog, Field, Input, Kbd, LabelChip, Menu, Select, Textarea } from '@/shared/ui';
+import { Button, Checkbox, Dialog, Field, Input, Kbd, LabelChip, Menu, ProgressBar, Select, Textarea } from '@/shared/ui';
 import { typeMeta } from '@/shared/ui/meta';
 import { priorityLabel } from '@/shared/ui/meta';
 import { cn } from '@/shared/lib/cn';
@@ -11,8 +11,10 @@ import { fromDateInputValue } from '@/shared/lib/time';
 import { clients, epics, team, useDb, type CreateTicketInput } from '@/mocks/db';
 import { allPriorities } from '@/mocks/seed';
 import { toast } from '@/shared/lib/toast-store';
+import { formatBytes } from '../api/mapper';
 import type { Impact, TicketType } from '@/mocks/types';
 import { useActor } from '../hooks/useActor';
+import { useAttachmentUploads } from '../hooks/useAttachmentUploads';
 
 const impacts: Impact[] = ['S1 · Branch down', 'S2 · Degraded', 'S3 · Single user', 'S4 · Cosmetic'];
 const types: TicketType[] = ['task', 'bug', 'story', 'epic', 'support'];
@@ -54,7 +56,12 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 	const allTickets = useDb((s) => s.tickets);
 	const createTicket = useDb((s) => s.createTicket);
 	const [template, setTemplate] = useState('none');
-	const [files, setFiles] = useState<string[]>([]);
+
+	// Files upload as they are chosen, so the wait overlaps with typing the rest
+	// of the form. On live data they are stored server-side and claimed by the
+	// create call; on mock data they stay in the browser.
+	const uploads = useAttachmentUploads('ticket_attachment');
+	const [dragging, setDragging] = useState(false);
 
 	const savedDraft = useMemo(() => {
 		try {
@@ -139,6 +146,13 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 	};
 
 	const submit = handleSubmit((v) => {
+		// Submitting now would create the ticket without the file that is still
+		// going out, and there would be nothing to tell the person so.
+		if (uploads.uploading) {
+			toast('Wait for the attachments to finish uploading.', { tone: 'danger' });
+			return;
+		}
+
 		const input: CreateTicketInput = {
 			projectKey: v.projectKey,
 			title: v.title,
@@ -159,14 +173,17 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 			impact: (v.impact as Impact) || undefined,
 			storyPoints: v.storyPoints ? Number(v.storyPoints) : undefined,
 			category: v.asset ? `${typeMeta[v.type].label} · ${v.asset.split(' · ')[0]}` : typeMeta[v.type].label,
-			attachments: files.map((name, i) => ({ id: `new_${i}`, name, size: '—', kind: /\.(png|jpe?g)$/i.test(name) ? 'image' : /\.(log|txt)$/i.test(name) ? 'log' : 'other' })),
+			attachments: uploads.attachments,
+			// Ids of files already stored by the API. The create call claims them;
+			// the mock store ignores them and keeps `attachments` above.
+			attachmentIds: uploads.attachmentIds,
 		};
 		const created = createTicket(input, actor);
 		clearDraft();
 		toast(`${created.key} created`, { tone: 'success', description: created.title });
 		if (v.createAnother) {
 			reset({ ...v, title: '', description: '', createAnother: true });
-			setFiles([]);
+			uploads.reset();
 		} else {
 			onCreated?.(created.key);
 			onClose();
@@ -209,8 +226,8 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 						>
 							Save draft
 						</Button>
-						<Button variant="primary" onClick={submit} loading={formState.isSubmitting}>
-							Create ticket <Kbd>⌘↵</Kbd>
+						<Button variant="primary" onClick={submit} loading={formState.isSubmitting || uploads.uploading}>
+							{uploads.uploading ? 'Uploading files…' : <>Create ticket <Kbd>⌘↵</Kbd></>}
 						</Button>
 					</div>
 				</div>
@@ -331,33 +348,77 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 					</div>
 
 					<Field label="Attachments">
-						{() => (
-							<div
-								className="rounded-[10px] border border-dashed border-border-strong px-4 py-5 text-center text-[13px] text-t2"
-								onDragOver={(e) => e.preventDefault()}
-								onDrop={(e) => {
-									e.preventDefault();
-									setFiles((f) => [...f, ...Array.from(e.dataTransfer.files).map((x) => x.name)]);
-								}}
-							>
-								<Paperclip size={18} className="mx-auto mb-1.5 text-t3" aria-hidden />
-								Drop files or{' '}
-								<label className="cursor-pointer text-brand-600 hover:underline">
-									browse
-									<input type="file" multiple className="sr-only" onChange={(e) => setFiles((f) => [...f, ...Array.from(e.target.files ?? []).map((x) => x.name)])} />
-								</label>{' '}
-								· up to 25 MB · scanned on upload
-								{files.length ? (
-									<div className="mt-2.5 flex flex-wrap justify-center gap-1.5">
-										{files.map((f, i) => (
-											<span key={`${f}-${i}`} className="inline-flex items-center gap-1 rounded-[6px] bg-info-bg px-2 py-0.5 text-[11px] font-medium text-info-fg">
-												{f} ✓
-												<button type="button" onClick={() => setFiles((x) => x.filter((_, j) => j !== i))} aria-label={`Remove ${f}`}>
-													<X size={10} />
+						{(id) => (
+							<div>
+								<div
+									className={cn(
+										'rounded-[10px] border border-dashed px-4 py-5 text-center text-[13px] text-t2 transition-colors',
+										dragging ? 'border-brand-600 bg-info-bg' : 'border-border-strong',
+									)}
+									onDragOver={(e) => {
+										e.preventDefault();
+										setDragging(true);
+									}}
+									onDragLeave={() => setDragging(false)}
+									onDrop={(e) => {
+										e.preventDefault();
+										setDragging(false);
+										uploads.add(e.dataTransfer.files);
+									}}
+								>
+									<Paperclip size={18} className="mx-auto mb-1.5 text-t3" aria-hidden />
+									Drop files or{' '}
+									<label className="cursor-pointer text-brand-600 hover:underline">
+										browse
+										<input
+											id={id}
+											type="file"
+											multiple
+											className="sr-only"
+											accept={uploads.policy.extensions.map((e) => `.${e}`).join(',')}
+											onChange={(e) => {
+												uploads.add(e.target.files ?? []);
+												// Cleared so choosing the same file twice still fires.
+												e.target.value = '';
+											}}
+										/>
+									</label>{' '}
+									{/* Read from the API's upload policy, not hard-coded here. */}
+									· up to {formatBytes(uploads.policy.maxBytes)} · {uploads.policy.maxFiles} files
+									{uploads.policy.scanned ? ' · scanned on upload' : ''}
+								</div>
+
+								{uploads.items.length ? (
+									<ul className="mt-2.5 space-y-1.5">
+										{uploads.items.map((f) => (
+											<li
+												key={f.localId}
+												className={cn(
+													'flex items-center gap-2.5 rounded-[8px] border px-2.5 py-2 text-[12px]',
+													f.status === 'error' ? 'border-danger-fg/30 bg-danger-bg' : 'border-border',
+												)}
+											>
+												<span className="min-w-0 flex-1">
+													<span className="flex items-center gap-1.5">
+														<span className="truncate font-medium">{f.name}</span>
+														{f.status === 'ready' ? <span className="text-success-fg" aria-label="Uploaded">✓</span> : null}
+													</span>
+													<span className={cn('text-[11px]', f.status === 'error' ? 'text-danger-fg' : 'text-t3')}>
+														{f.status === 'error' ? f.error : f.status === 'uploading' ? `Uploading… ${Math.round(f.progress * 100)}%` : f.size}
+													</span>
+													{f.status === 'uploading' ? <ProgressBar value={f.progress * 100} className="mt-1" label={`Uploading ${f.name}`} /> : null}
+												</span>
+												<button
+													type="button"
+													className="shrink-0 rounded-sm p-1 text-t3 hover:bg-muted hover:text-t1"
+													onClick={() => uploads.remove(f.localId)}
+													aria-label={`Remove ${f.name}`}
+												>
+													<X size={12} />
 												</button>
-											</span>
+											</li>
 										))}
-									</div>
+									</ul>
 								) : null}
 							</div>
 						)}

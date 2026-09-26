@@ -30,10 +30,14 @@ export interface TeamMember {
 	email: string;
 	phone?: string;
 	tint: Tint;
+	/** Their photo, when they have uploaded one. The tint is the fallback. */
+	avatarUrl?: string;
 	base: string;
 	team: string;
 	presence: 'Active' | 'Away' | 'On site' | 'En route' | 'Break';
 	status: MemberStatus;
+	/** The workspace role as the API names it. Only set for live members. */
+	accessRole?: 'owner' | 'admin' | 'member' | 'viewer';
 	lastActiveAt?: number;
 	joinedAt?: number;
 	invitedAt?: number;
@@ -122,6 +126,8 @@ export interface Project {
 	statusDistribution?: { label: string; count: number; color: string }[];
 	activity: { id: string; actorName: string; text: string; ticketKey?: string; at: number }[];
 	createdAt: number;
+	/** Optional per-project configuration; see ProjectSettings. */
+	settings?: ProjectSettings;
 }
 
 export interface Subtask {
@@ -159,8 +165,19 @@ export interface Activity {
 export interface Attachment {
 	id: string;
 	name: string;
+	/** Human-readable, e.g. "2.4 MB". `bytes` is the number to compare. */
 	size: string;
 	kind: 'image' | 'log' | 'pdf' | 'other';
+	bytes?: number;
+	contentType?: string;
+	/**
+	 * Where to fetch it. A signed, expiring link from the API, or an object URL
+	 * while the app is running on mock data. Absent means the file exists only as
+	 * a row — nothing to open.
+	 */
+	url?: string;
+	/** `skipped` means no scanner was configured, not that the file is clean. */
+	scanStatus?: 'clean' | 'infected' | 'failed' | 'skipped';
 }
 
 export interface Sla {
@@ -437,4 +454,224 @@ export interface OrgSettings {
 	webhooks: Webhook[];
 	billing: { plan: string; seats: number; pricePerSeat: number; renewsAt: number; paymentMethod: string; usage: { whatsappConversations: number; whatsappLimit: number; sms: number; smsLimit: number; storageGb: number; storageLimit: number } };
 	auditEnabled: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Per-project configuration (workflow, fields, boards, roles…). Stored on the project;
+// anything missing falls back to defaults computed in the projects feature.
+
+export type ProjectRole = 'Admin' | 'Member' | 'Viewer';
+export type FieldType = 'text' | 'number' | 'select' | 'date' | 'user' | 'checkbox';
+
+export interface WorkflowStatus {
+	status: Status;
+	category: StatusCategory;
+	wipLimit?: number;
+	note?: string;
+}
+
+export interface WorkflowTransition {
+	id: string;
+	from: Status;
+	to: Status;
+	name: string;
+	roles: string;
+	validators: string[];
+	postFunctions: string[];
+}
+
+export interface CustomField {
+	id: string;
+	name: string;
+	type: FieldType;
+	required: boolean;
+	options?: string[];
+	appliesTo: TicketType[];
+	description?: string;
+}
+
+export interface BoardColumnConfig {
+	id: string;
+	name: string;
+	statuses: Status[];
+	wip?: number;
+}
+
+export interface BoardConfig {
+	id: string;
+	name: string;
+	type: 'kanban' | 'scrum';
+	columns: BoardColumnConfig[];
+	swimlane: 'none' | 'assignee' | 'epic' | 'priority';
+	isDefault: boolean;
+}
+
+export interface ProjectNotificationRule {
+	event: string;
+	label: string;
+	inApp: boolean;
+	email: boolean;
+	whatsapp: boolean;
+}
+
+export interface ProjectIntegration {
+	id: string;
+	name: string;
+	description: string;
+	connected: boolean;
+	detail?: string;
+}
+
+export interface ProjectSettings {
+	general: {
+		defaultAssignee: 'lead' | 'unassigned' | 'round-robin';
+		visibility: 'org' | 'private';
+		startDay: 'monday' | 'sunday';
+		/** Working days per week, used for capacity in Workload. */
+		workingDays: number;
+		/** Focus hours per working day, used for capacity in Workload. */
+		focusHoursPerDay: number;
+		clientVisible: boolean;
+	};
+	workflow: { name: string; statuses: WorkflowStatus[]; transitions: WorkflowTransition[]; publishedAt?: number };
+	fields: CustomField[];
+	boards: BoardConfig[];
+	ticketTypes: { type: TicketType; enabled: boolean; defaultPriority: Priority; template: string }[];
+	/** memberId → project role. Members without an entry are "Member"; the lead is always Admin. */
+	roles: Record<string, ProjectRole>;
+	automation: AutomationRule[];
+	notifications: ProjectNotificationRule[];
+	integrations: ProjectIntegration[];
+}
+
+// ---------------------------------------------------------------------------
+// Programmes, training, events and their costs
+//
+// Timestamps are epoch milliseconds like the rest of this file. Calendar days
+// (a programme's start date, the day an expense was incurred) stay as
+// 'YYYY-MM-DD' strings: they have no time and no zone, and turning them into a
+// timestamp is how a date shows as the day before for anyone east of UTC.
+
+export type ProgramStatus = 'planned' | 'active' | 'completed' | 'cancelled';
+export type ActivityKind = 'training' | 'event' | 'workshop' | 'meeting' | 'other';
+export type ActivityStatus = 'planned' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled';
+export type ParticipantKind = 'member' | 'contact' | 'external';
+export type ParticipantStatus = 'invited' | 'registered' | 'attended' | 'no_show' | 'cancelled';
+export type ExpenseCategory =
+	| 'venue'
+	| 'materials'
+	| 'catering'
+	| 'transport'
+	| 'facilitator_fee'
+	| 'marketing'
+	| 'equipment'
+	| 'other';
+export type ExpenseStatus = 'draft' | 'submitted' | 'approved' | 'rejected' | 'paid';
+
+export interface Program {
+	id: string;
+	key: string;
+	name: string;
+	description: string;
+	clientId?: string;
+	clientName?: string;
+	leadId?: string;
+	leadName?: string;
+	status: ProgramStatus;
+	/** 'YYYY-MM-DD', or undefined when open-ended. */
+	startsOn?: string;
+	endsOn?: string;
+	/** Minor units — kobo. Undefined means nothing was budgeted. */
+	budgetAmount?: number;
+	currency: string;
+	archived: boolean;
+	activityCount: number;
+	upcomingCount: number;
+	createdAt: number;
+}
+
+export interface ProgramActivity {
+	id: string;
+	key: string;
+	programId: string;
+	programKey: string;
+	kind: ActivityKind;
+	title: string;
+	description: string;
+	status: ActivityStatus;
+	startsAt?: number;
+	endsAt?: number;
+	location?: string;
+	meetingUrl?: string;
+	facilitatorId?: string;
+	facilitatorName?: string;
+	clientId?: string;
+	clientName?: string;
+	capacity?: number;
+	registeredCount: number;
+	attendedCount: number;
+	/** Null when there is no capacity to count against. */
+	placesLeft: number | null;
+	full: boolean;
+	budgetAmount?: number;
+	currency?: string;
+	/** What this activity may do next, as the server sees it. */
+	transitions: { to: ActivityStatus; name: string }[];
+}
+
+export interface ProgramParticipant {
+	id: string;
+	activityId: string;
+	kind: ParticipantKind;
+	name: string;
+	email?: string;
+	userId?: string;
+	clientContactId?: string;
+	status: ParticipantStatus;
+	registeredAt: number;
+	checkedInAt?: number;
+	notes?: string;
+}
+
+export interface Expense {
+	id: string;
+	programKey?: string;
+	programName?: string;
+	activityKey?: string;
+	activityTitle?: string;
+	category: ExpenseCategory;
+	description: string;
+	/** Minor units, in the owning programme's currency. */
+	amount: number;
+	currency: string;
+	/** 'YYYY-MM-DD'. */
+	incurredOn: string;
+	status: ExpenseStatus;
+	/** Whether this amount is counting against a budget yet. */
+	countsAsSpent: boolean;
+	submittedById?: string;
+	submittedByName?: string;
+	decidedByName?: string;
+	decidedAt?: number;
+	rejectionReason?: string;
+	notes?: string;
+	receiptCount: number;
+	createdAt: number;
+}
+
+/** Planned versus actual, with the comparisons already worked out. */
+export interface BudgetSummary {
+	budgetAmount: number | null;
+	currency: string;
+	spent: number;
+	/** Submitted but not yet decided — money that is probably about to count. */
+	pending: number;
+	invoiced: number;
+	expenseCount: number;
+	remaining: number | null;
+	overBudget: boolean;
+	/** Null rather than zero when nothing was budgeted: no plan, no percentage. */
+	usedPct: number | null;
+	margin: number | null;
+	byCategory: { category: ExpenseCategory; total: number; count: number }[];
 }

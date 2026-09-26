@@ -37,7 +37,7 @@ export const ticketSearchSchema = z.object({
 export type TicketSearch = z.infer<typeof ticketSearchSchema>;
 export const defaultTicketSearch: TicketSearch = ticketSearchSchema.parse({});
 
-export const PAGE_SIZE = 10;
+export const PAGE_SIZE = 50;
 
 const priorityRank = { P1: 0, P2: 1, P3: 2, P4: 3 } as const;
 

@@ -35,6 +35,10 @@ import { formatDateTime, relativeTime, useNow } from '@/shared/lib/time';
 import type { AutomationRule, OrgSettings, SlaPolicy } from '@/mocks/types';
 import { sectionTitle, settingsSections, type SettingsSection } from './model';
 import { useTourStore } from '@/features/tour/store';
+import { isLiveApi } from '@/shared/lib/live-api';
+import { useTeamMembers } from '@/features/team/hooks/useTeam';
+import { LiveApiKeys, LiveSla, NotConnectedNotice, SettingsGate } from './live';
+import { LIVE_SECTIONS, useLiveSection } from './hooks/useLiveSettings';
 import { MousePointerClick, PlayCircle } from 'lucide-react';
 
 // ---------- helpers ----------
@@ -89,8 +93,11 @@ function SaveBar({
 
 /** Generic editable section: local draft of one settings slice, saved on click. */
 function useDraft<K extends keyof OrgSettings>(section: K) {
-	const value = useDb((s) => s.settings[section]);
+	const mockValue = useDb((s) => s.settings[section]);
 	const setSettings = useDb((s) => s.setSettings);
+	// Live, the workspace's own settings replace the store's demo ones.
+	const server = useLiveSection(section);
+	const value = server ? server.value : mockValue;
 	const [draft, setDraft] = useState<OrgSettings[K]>(value);
 	const [base, setBase] = useState(value);
 	if (base !== value) {
@@ -99,6 +106,10 @@ function useDraft<K extends keyof OrgSettings>(section: K) {
 	}
 	const dirty = JSON.stringify(draft) !== JSON.stringify(value);
 	const save = () => {
+		if (server) {
+			void server.save(draft).then((ok) => ok && toast('Settings saved', { tone: 'success', description: `${sectionTitle(String(section))} updated.` }));
+			return;
+		}
 		setSettings(section, draft);
 		toast('Settings saved', {
 			tone: 'success',
@@ -122,6 +133,7 @@ function General() {
 	const hours = useDraft('businessHours');
 	const patch = (p: Partial<OrgSettings['general']>) => setG({ ...g, ...p });
 	const nextKey = useDb((s) => s.nextKey.KS ?? 2051);
+	const live = isLiveApi();
 	const h = hours.draft;
 	return (
 		<div className="grid gap-4 xl:grid-cols-[1fr_400px] [&>*]:min-w-0">
@@ -165,6 +177,7 @@ function General() {
 						<Row label="Workspace URL">
 							<Input
 								value={g.slug}
+								readOnly={live}
 								onChange={(e) =>
 									patch({
 										slug: e.target.value
@@ -179,7 +192,9 @@ function General() {
 								aria-label="Workspace slug"
 							/>
 							<p className="mt-1.5 text-xs text-t2">
-								Custom domain (support.{g.slug}.ng) available on Enterprise
+								{live
+									? 'The workspace URL is fixed: it is part of every link.'
+									: `Custom domain (support.${g.slug}.ng) available on Enterprise`}
 							</p>
 						</Row>
 						<Row label="Registered details" sub="Shown on invoices">
@@ -230,8 +245,9 @@ function General() {
 									aria-label="Ticket prefix"
 								/>
 								<span className="text-[13px] text-t2">
-									Next: {g.ticketPrefix}-{nextKey} · changing the prefix keeps
-									old keys working
+									{live
+										? 'Suggested key for new projects · existing keys are unchanged'
+										: `Next: ${g.ticketPrefix}-${nextKey} · changing the prefix keeps old keys working`}
 								</span>
 							</div>
 						</Row>
@@ -598,7 +614,7 @@ function Branding() {
 }
 
 function TeamRoles({ orgSlug }: { orgSlug: string }) {
-	const members = useDb((s) => s.members);
+	const members = useTeamMembers();
 	const active = members.filter((m) => m.status === 'Active');
 	return (
 		<Card className="p-6">
@@ -622,7 +638,7 @@ function TeamRoles({ orgSlug }: { orgSlug: string }) {
 					<b className="tabular text-2xl">
 						{
 							active.filter(
-								(m) => m.role === 'Admin' || m.role === 'Super Admin',
+								(m) => m.accessRole === 'owner' || m.accessRole === 'admin' || m.role === 'Admin' || m.role === 'Super Admin',
 							).length
 						}
 					</b>
@@ -1214,6 +1230,10 @@ function Channels() {
 }
 
 function Sla({ orgSlug }: { orgSlug: string }) {
+	return isLiveApi() ? <LiveSla /> : <MockSla orgSlug={orgSlug} />;
+}
+
+function MockSla({ orgSlug }: { orgSlug: string }) {
 	const policies = useDb((s) => s.settings.slaPolicies);
 	const updatePolicy = useDb((s) => s.updateSlaPolicy);
 	const updateRow = useDb((s) => s.updateSlaRow);
@@ -2196,7 +2216,7 @@ function Api() {
 	const [hookUrl, setHookUrl] = useState('');
 	return (
 		<div className="space-y-4">
-			<Card className="p-6">
+			{isLiveApi() ? <LiveApiKeys /> : <Card className="p-6">
 				<CardHeader
 					title="API keys"
 					sub="Server-to-server access. Keys are shown once."
@@ -2274,11 +2294,11 @@ function Api() {
 						))
 					)}
 				</ul>
-			</Card>
+			</Card>}
 			<Card className="p-6">
 				<CardHeader
 					title="Webhooks"
-					sub="POST JSON on events. Retries 5× with backoff; signed with the workspace secret."
+					sub={isLiveApi() ? 'Preview only · webhook delivery is not connected to the server yet.' : 'POST JSON on events. Retries 5× with backoff; signed with the workspace secret.'}
 				/>
 				<div className="mt-3 flex gap-2">
 					<Input
@@ -2474,9 +2494,9 @@ export function SettingsPage() {
 	const body = (() => {
 		switch (section as SettingsSection) {
 			case 'general':
-				return <General />;
+				return <SettingsGate><General /></SettingsGate>;
 			case 'branding':
-				return <Branding />;
+				return <SettingsGate><Branding /></SettingsGate>;
 			case 'team':
 				return <TeamRoles orgSlug={org.slug} />;
 			case 'billing':
@@ -2492,7 +2512,7 @@ export function SettingsPage() {
 			case 'ticket-types':
 				return <TicketTypes />;
 			case 'business-hours':
-				return <General />;
+				return <SettingsGate><General /></SettingsGate>;
 			case 'automation':
 				return <Automation />;
 			case 'csat':
@@ -2575,6 +2595,7 @@ export function SettingsPage() {
 					))}
 				</Card>
 				<div data-tour={section === 'sla' ? 'settings-sla' : undefined}>
+					{isLiveApi() && !LIVE_SECTIONS.has(section) ? <NotConnectedNotice /> : null}
 					{body}
 				</div>
 			</div>

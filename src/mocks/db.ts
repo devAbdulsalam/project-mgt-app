@@ -1,8 +1,11 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { clients, epics, nextKeyNumbers, projects as seedProjects, team as seedTeam, tickets as seedTickets, notifications as seedNotifications, transitions, statusCategory, slaPausedStatuses } from './seed';
-import type { Activity, Client, Comment, Epic, MemberRole, Project, Status, Subtask, TeamMember, Ticket, TicketLink, Notification, NotificationPrefs, Tint, ClientAccount, Asset, Visit, KbArticle, OrgSettings, ClientSite, ClientContact, ClientNote, SlaPolicy, AutomationRule, ApiKey, Webhook, VisitStatus, Invoice } from './types';
+import type { Activity, Client, Comment, Epic, MemberRole, Project, Status, Subtask, TeamMember, Ticket, TicketLink, Notification, NotificationPrefs, Tint, ClientAccount, Asset, Visit, KbArticle, OrgSettings, ClientSite, ClientContact, ClientNote, SlaPolicy, AutomationRule, ApiKey, Webhook, VisitStatus, Invoice, Program, ProgramActivity, ProgramParticipant, Expense, ActivityStatus, ParticipantKind, ParticipantStatus, ExpenseStatus } from './types';
+import { isLiveApi } from '@/shared/lib/live-api';
+import { useMemberDirectory } from '@/shared/lib/member-directory';
 import { assets as seedAssets, clientAccounts as seedClientAccounts, defaultSettings, kbArticles as seedKb, visits as seedVisits } from './seed-ops';
+import { seedActivities, seedExpenses, seedParticipants, seedPrograms } from './seed-programs';
 
 export { clients, epics, transitions, statusCategory, slaPausedStatuses };
 /** Static seed roster; prefer `useDb((s) => s.members)` for live data. */
@@ -31,6 +34,11 @@ export interface CreateTicketInput {
 	storyPoints?: number;
 	category?: string;
 	attachments?: Ticket['attachments'];
+	/**
+	 * Ids of files already uploaded to the API but not yet owned by anything.
+	 * Only the live path uses them; the mock store keeps the attachments above.
+	 */
+	attachmentIds?: string[];
 }
 
 export interface CreateProjectInput {
@@ -65,6 +73,10 @@ interface DbState {
 	assets: Asset[];
 	visits: Visit[];
 	kb: KbArticle[];
+	programs: Program[];
+	activities: ProgramActivity[];
+	participants: ProgramParticipant[];
+	expenses: Expense[];
 	settings: OrgSettings;
 
 	createTicket: (input: CreateTicketInput, actor: Actor) => Ticket;
@@ -88,6 +100,8 @@ interface DbState {
 	toggleStar: (projectId: string) => void;
 	archiveProject: (projectId: string, archived: boolean) => void;
 	updateProject: (projectId: string, patch: Partial<Project>) => void;
+	/** Removes the project and every ticket in it. */
+	deleteProject: (projectId: string) => void;
 
 	inviteMember: (input: InviteInput) => TeamMember;
 	updateMember: (id: string, patch: Partial<TeamMember>) => void;
@@ -123,6 +137,23 @@ interface DbState {
 	deleteArticle: (id: string) => void;
 	voteArticle: (id: string, helpful: boolean) => void;
 	viewArticle: (id: string) => void;
+	// programmes, training and events
+	createProgram: (input: Pick<Program, 'key' | 'name' | 'description' | 'currency'> & { budgetAmount?: number; startsOn?: string; endsOn?: string; leadId?: string; clientId?: string }, actor: Actor) => Program;
+	updateProgram: (key: string, patch: Partial<Program>) => void;
+	archiveProgram: (key: string, archived: boolean) => void;
+	deleteProgram: (key: string) => void;
+	createActivity: (programKey: string, input: Pick<ProgramActivity, 'kind' | 'title' | 'description'> & { startsAt?: number; endsAt?: number; location?: string; capacity?: number; facilitatorId?: string; budgetAmount?: number }) => ProgramActivity;
+	updateActivity: (key: string, patch: Partial<ProgramActivity>) => void;
+	transitionActivity: (key: string, to: ActivityStatus) => boolean;
+	deleteActivity: (key: string) => void;
+	addParticipant: (activityId: string, input: { name: string; email?: string; kind: ParticipantKind; userId?: string; clientContactId?: string; notes?: string }) => void;
+	setParticipantStatus: (id: string, status: ParticipantStatus) => void;
+	removeParticipant: (id: string) => void;
+	// expenses
+	createExpense: (input: Pick<Expense, 'category' | 'description' | 'amount' | 'incurredOn'> & { programKey?: string; activityKey?: string; submit?: boolean; notes?: string }, actor: Actor) => Expense;
+	updateExpense: (id: string, patch: Partial<Expense>) => void;
+	setExpenseStatus: (id: string, status: ExpenseStatus, rejectionReason?: string) => void;
+	deleteExpense: (id: string) => void;
 	// settings
 	updateSettings: <K extends keyof OrgSettings>(section: K, patch: Partial<OrgSettings[K]>) => void;
 	setSettings: <K extends keyof OrgSettings>(section: K, value: OrgSettings[K]) => void;
@@ -157,6 +188,10 @@ export const useDb = create<DbState>()(
 				assets: seedAssets,
 				visits: seedVisits,
 				kb: seedKb,
+				programs: seedPrograms,
+				activities: seedActivities,
+				participants: seedParticipants,
+				expenses: seedExpenses,
 				settings: defaultSettings,
 
 				createTicket(input, actor) {
@@ -361,6 +396,11 @@ export const useDb = create<DbState>()(
 
 				updateProject(projectId, patch) {
 					set({ projects: get().projects.map((p) => (p.id === projectId ? { ...p, ...patch } : p)) });
+				},
+				deleteProject(projectId) {
+					const project = get().projects.find((p) => p.id === projectId);
+					if (!project) return;
+					set({ projects: get().projects.filter((p) => p.id !== projectId), tickets: get().tickets.filter((t) => t.projectKey !== project.key) });
 				},
 
 				inviteMember(input) {
@@ -571,6 +611,265 @@ export const useDb = create<DbState>()(
 					set({ settings: { ...get().settings, webhooks: list.some((w) => w.id === hook.id) ? list.map((w) => (w.id === hook.id ? hook : w)) : [...list, hook] } });
 				},
 
+				// -- Programmes, training and events ------------------------------
+				//
+				// The mock mirrors what the server enforces rather than being looser:
+				// the same activity transitions, the same capacity check, the same
+				// "only approved and paid count" rule. A screen that behaves one way
+				// against mocks and another against the API is worse than no mock.
+
+				createProgram(input, actor) {
+					const program: Program = {
+						id: `prog_${Math.random().toString(36).slice(2, 8)}`,
+						key: input.key.toUpperCase(),
+						name: input.name.trim(),
+						description: input.description ?? '',
+						clientId: input.clientId,
+						leadId: input.leadId ?? actor.id,
+						leadName: actor.name,
+						status: 'planned',
+						startsOn: input.startsOn,
+						endsOn: input.endsOn,
+						budgetAmount: input.budgetAmount,
+						currency: input.currency || 'NGN',
+						archived: false,
+						activityCount: 0,
+						upcomingCount: 0,
+						createdAt: Date.now(),
+					};
+					set({ programs: [program, ...get().programs] });
+					return program;
+				},
+
+				updateProgram(key, patch) {
+					set({ programs: get().programs.map((p) => (p.key === key ? { ...p, ...patch } : p)) });
+				},
+
+				archiveProgram(key, archived) {
+					set({ programs: get().programs.map((p) => (p.key === key ? { ...p, archived } : p)) });
+				},
+
+				deleteProgram(key) {
+					const program = get().programs.find((p) => p.key === key);
+					set({
+						programs: get().programs.filter((p) => p.key !== key),
+						activities: get().activities.filter((a) => a.programKey !== key),
+						expenses: get().expenses.filter((e) => e.programKey !== program?.key),
+					});
+				},
+
+				createActivity(programKey, input) {
+					const program = get().programs.find((p) => p.key === programKey);
+					// The key comes from a per-programme counter, the same way the
+					// server allocates it from programs.next_seq.
+					const taken = get().activities.filter((a) => a.programKey === programKey).length;
+					const activity: ProgramActivity = {
+						id: `act_${Math.random().toString(36).slice(2, 8)}`,
+						key: `${programKey}-${taken + 1}`,
+						programId: program?.id ?? '',
+						programKey,
+						kind: input.kind,
+						title: input.title.trim(),
+						description: input.description ?? '',
+						status: 'planned',
+						startsAt: input.startsAt,
+						endsAt: input.endsAt,
+						location: input.location,
+						facilitatorId: input.facilitatorId,
+						capacity: input.capacity,
+						registeredCount: 0,
+						attendedCount: 0,
+						placesLeft: input.capacity ?? null,
+						full: false,
+						budgetAmount: input.budgetAmount,
+						currency: program?.currency ?? 'NGN',
+						transitions: [
+							{ to: 'confirmed', name: 'Confirmed' },
+							{ to: 'in_progress', name: 'In progress' },
+							{ to: 'cancelled', name: 'Cancelled' },
+						],
+					};
+					set({
+						activities: [...get().activities, activity],
+						programs: get().programs.map((p) =>
+							p.key === programKey ? { ...p, activityCount: p.activityCount + 1 } : p,
+						),
+					});
+					return activity;
+				},
+
+				updateActivity(key, patch) {
+					set({ activities: get().activities.map((a) => (a.key === key ? { ...a, ...patch } : a)) });
+				},
+
+				transitionActivity(key, to) {
+					const activity = get().activities.find((a) => a.key === key);
+					if (!activity) return false;
+					// Same map the server holds, so an illegal move is refused here too.
+					const allowed: Record<ActivityStatus, ActivityStatus[]> = {
+						planned: ['confirmed', 'in_progress', 'cancelled'],
+						confirmed: ['in_progress', 'planned', 'cancelled'],
+						in_progress: ['completed', 'cancelled'],
+						completed: [],
+						cancelled: ['planned'],
+					};
+					if (!allowed[activity.status].includes(to)) return false;
+
+					const labels: Record<ActivityStatus, string> = {
+						planned: 'Planned',
+						confirmed: 'Confirmed',
+						in_progress: 'In progress',
+						completed: 'Completed',
+						cancelled: 'Cancelled',
+					};
+					set({
+						activities: get().activities.map((a) =>
+							a.key === key
+								? { ...a, status: to, transitions: allowed[to].map((t) => ({ to: t, name: labels[t] })) }
+								: a,
+						),
+					});
+					return true;
+				},
+
+				deleteActivity(key) {
+					const activity = get().activities.find((a) => a.key === key);
+					set({
+						activities: get().activities.filter((a) => a.key !== key),
+						participants: get().participants.filter((p) => p.activityId !== activity?.id),
+					});
+				},
+
+				addParticipant(activityId, input) {
+					const activity = get().activities.find((a) => a.id === activityId);
+					// Capacity is checked on registering, as the server does.
+					if (activity?.capacity != null && activity.registeredCount >= activity.capacity) return;
+
+					const participant: ProgramParticipant = {
+						id: `pp_${Math.random().toString(36).slice(2, 8)}`,
+						activityId,
+						kind: input.kind,
+						name: input.name.trim(),
+						email: input.email,
+						userId: input.userId,
+						clientContactId: input.clientContactId,
+						status: 'registered',
+						registeredAt: Date.now(),
+						notes: input.notes,
+					};
+					set({
+						participants: [...get().participants, participant],
+						activities: get().activities.map((a) =>
+							a.id === activityId
+								? {
+										...a,
+										registeredCount: a.registeredCount + 1,
+										placesLeft: a.capacity == null ? null : Math.max(0, a.capacity - (a.registeredCount + 1)),
+										full: a.capacity != null && a.registeredCount + 1 >= a.capacity,
+									}
+								: a,
+						),
+					});
+				},
+
+				setParticipantStatus(id, status) {
+					const participant = get().participants.find((p) => p.id === id);
+					set({
+						participants: get().participants.map((p) =>
+							p.id === id
+								? { ...p, status, checkedInAt: status === 'attended' ? (p.checkedInAt ?? Date.now()) : undefined }
+								: p,
+						),
+						activities: get().activities.map((a) =>
+							a.id === participant?.activityId
+								? {
+										...a,
+										attendedCount:
+											status === 'attended' && participant.status !== 'attended'
+												? a.attendedCount + 1
+												: a.attendedCount,
+									}
+								: a,
+						),
+					});
+				},
+
+				removeParticipant(id) {
+					const participant = get().participants.find((p) => p.id === id);
+					set({
+						participants: get().participants.filter((p) => p.id !== id),
+						activities: get().activities.map((a) =>
+							a.id === participant?.activityId
+								? {
+										...a,
+										registeredCount: Math.max(0, a.registeredCount - 1),
+										placesLeft: a.capacity == null ? null : Math.max(0, a.capacity - (a.registeredCount - 1)),
+										full: false,
+									}
+								: a,
+						),
+					});
+				},
+
+				// -- Expenses -----------------------------------------------------
+
+				createExpense(input, actor) {
+					const program = get().programs.find((p) => p.key === input.programKey);
+					const activity = get().activities.find((a) => a.key === input.activityKey);
+					const owningProgram =
+						program ?? get().programs.find((p) => p.key === activity?.programKey);
+
+					const expense: Expense = {
+						id: `exp_${Math.random().toString(36).slice(2, 8)}`,
+						programKey: owningProgram?.key,
+						programName: owningProgram?.name,
+						activityKey: activity?.key,
+						activityTitle: activity?.title,
+						category: input.category,
+						description: input.description ?? '',
+						amount: input.amount,
+						// Inherited from the programme, never chosen per expense.
+						currency: owningProgram?.currency ?? 'NGN',
+						incurredOn: input.incurredOn,
+						status: input.submit ? 'submitted' : 'draft',
+						countsAsSpent: false,
+						submittedById: actor.id,
+						submittedByName: actor.name,
+						notes: input.notes,
+						receiptCount: 0,
+						createdAt: Date.now(),
+					};
+					set({ expenses: [expense, ...get().expenses] });
+					return expense;
+				},
+
+				updateExpense(id, patch) {
+					set({ expenses: get().expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)) });
+				},
+
+				setExpenseStatus(id, status, rejectionReason) {
+					const decided = status === 'approved' || status === 'rejected' || status === 'paid';
+					set({
+						expenses: get().expenses.map((e) =>
+							e.id === id
+								? {
+										...e,
+										status,
+										// Only approved and paid count against a budget.
+										countsAsSpent: status === 'approved' || status === 'paid',
+										decidedByName: decided ? e.decidedByName ?? 'You' : undefined,
+										decidedAt: decided ? Date.now() : undefined,
+										rejectionReason: status === 'rejected' ? rejectionReason : undefined,
+									}
+								: e,
+						),
+					});
+				},
+
+				deleteExpense(id) {
+					set({ expenses: get().expenses.filter((e) => e.id !== id) });
+				},
+
 				reset() {
 					set({ tickets: seedTickets, projects: seedProjects, members: seedTeam, notifications: seedNotifications, prefs: defaultPrefs, nextKey: { ...nextKeyNumbers }, clientAccounts: seedClientAccounts, assets: seedAssets, visits: seedVisits, kb: seedKb, settings: defaultSettings });
 				},
@@ -588,7 +887,16 @@ export const useDb = create<DbState>()(
 
 // ---------- Lookups ----------
 
-export const memberById = (id?: string): TeamMember | undefined => (id ? useDb.getState().members.find((m) => m.id === id) : undefined);
+export const memberById = (id?: string): TeamMember | undefined => {
+	if (!id) return undefined;
+	if (isLiveApi()) return useMemberDirectory.getState().members.find((m) => m.id === id);
+	return useDb.getState().members.find((m) => m.id === id);
+};
+export const memberByName = (name?: string): TeamMember | undefined => {
+	if (!name) return undefined;
+	const list = isLiveApi() ? useMemberDirectory.getState().members : useDb.getState().members;
+	return list.find((m) => m.name === name);
+};
 export const unreadCount = (list: Notification[]) => list.filter((n) => !n.read && !(n.snoozedUntil && n.snoozedUntil > Date.now())).length;
 export const clientById = (id?: string): Client | undefined => (id ? clients.find((c) => c.id === id) : undefined);
 export const epicById = (id?: string): Epic | undefined => (id ? epics.find((e) => e.id === id) : undefined);

@@ -4,17 +4,20 @@ import { ChevronLeft, ChevronRight, Plus, Users } from 'lucide-react';
 import { Avatar, Button, Card, EmptyState, LabelChip, PriorityPill, TypeDot } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
-import { memberById, useDb } from '@/mocks/db';
+import { memberById } from '@/mocks/db';
 import { transitions } from '@/mocks/seed';
 import { toast } from '@/shared/lib/toast-store';
 import type { Status, Ticket } from '@/mocks/types';
-import { useActor } from '@/features/tickets/hooks/useActor';
+import { useProjectTickets } from '@/features/tickets/hooks/useProjectTickets';
+import { useTicketActions } from '@/features/tickets/hooks/useTicketActions';
 import { TicketDetail } from '@/features/tickets/components/TicketDetail';
 import { CreateTicketDialog } from '@/features/tickets/components/CreateTicketDialog';
 import { SlaCountdown } from '@/features/tickets/components/TicketBits';
 import { useNow } from '@/shared/lib/time';
 
 import type { BoardSearch } from '../model';
+import { useProject } from '../hooks/useProject';
+import { useProjectSprint } from '../hooks/useProjectSprint';
 
 interface Column { id: string; title: string; statuses: Status[]; target: Status; wip?: number }
 
@@ -55,7 +58,7 @@ function BoardCard({ t, now, onOpen, dragging, onDragStart, onDragEnd }: { t: Ti
 				{t.subtasks.length ? <span>{done}/{t.subtasks.length} sub-tasks</span> : null}
 				{t.storyPoints ? <span className="rounded-full bg-muted px-1.5 font-semibold">{t.storyPoints}</span> : null}
 				{t.sla ? <SlaCountdown ticket={t} now={now} /> : null}
-				<span className="ms-auto">{m ? <Avatar name={m.name} tint={m.tint} size="sm" /> : <span className="grid size-6 place-items-center rounded-full bg-muted text-[10px] text-t3">?</span>}</span>
+				<span className="ms-auto">{m ? <Avatar name={m.name} tint={m.tint} src={m.avatarUrl} size="sm" /> : <span className="grid size-6 place-items-center rounded-full bg-muted text-[10px] text-t3">?</span>}</span>
 			</div>
 		</div>
 	);
@@ -63,14 +66,15 @@ function BoardCard({ t, now, onOpen, dragging, onDragStart, onDragEnd }: { t: Ti
 
 export function ProjectBoardPage() {
 	const org = useAuthStore((s) => s.org)!;
-	const actor = useActor();
 	const { projectKey } = useParams({ from: '/authed/$org/projects/$projectKey/board' });
 	const search = useSearch({ from: '/authed/$org/projects/$projectKey/board' });
 	const navigate = useNavigate();
-	const project = useDb((s) => s.projects.find((p) => p.key === projectKey))!;
-	const allTickets = useDb((s) => s.tickets);
-	const tickets = useMemo(() => allTickets.filter((t) => t.projectKey === projectKey && t.type !== 'epic'), [allTickets, projectKey]);
-	const transition = useDb((s) => s.transition);
+	const project = useProject(org.slug, projectKey).project!;
+	const sprint = useProjectSprint(org.slug, project);
+	const { tickets: projectTickets } = useProjectTickets(org.slug, projectKey);
+	// Epics are containers, not cards; they have their own view.
+	const tickets = useMemo(() => projectTickets.filter((t) => t.type !== 'epic'), [projectTickets]);
+	const actions = useTicketActions(org.slug);
 	const now = useNow(30_000);
 	const [dragKey, setDragKey] = useState<string>();
 	const [overCol, setOverCol] = useState<string>();
@@ -88,8 +92,12 @@ export function ProjectBoardPage() {
 		setDragKey(undefined);
 		setOverCol(undefined);
 		if (!t || col.statuses.includes(t.status)) return;
-		if (transition(t.key, col.target, actor)) toast(`${t.key} moved to ${col.target}`, { tone: 'success' });
-		else toast(`Can't move ${t.key} to ${col.target}`, { tone: 'danger', description: `Allowed from ${t.status}: ${transitions[t.status].join(', ')}` });
+		// Only the success case is handled here: an illegal move or a version
+		// clash is reported by the action itself, so the message is the same
+		// wherever the move was attempted from.
+		void actions.transition(t, col.target).then((ok) => {
+			if (ok) toast(`${t.key} moved to ${col.target}`, { tone: 'success' });
+		});
 	};
 
 	const dragging = dragKey ? tickets.find((t) => t.key === dragKey) : undefined;
@@ -97,7 +105,7 @@ export function ProjectBoardPage() {
 	return (
 		<>
 			<div className="mb-4 flex flex-wrap items-center gap-3">
-				{project.sprint ? <span className="text-[13px] text-t2"><b className="text-t1">{project.sprint.name}</b> · {project.sprint.daysLeft} days left · {project.sprint.remaining} of {project.sprint.points} pts remaining</span> : <span className="text-[13px] text-t2">{visible.length} issues on the board</span>}
+				{sprint ? <span className="text-[13px] text-t2"><b className="text-t1">{sprint.name}</b> · {sprint.daysLeft} days left · {sprint.remaining} of {sprint.points} pts remaining</span> : <span className="text-[13px] text-t2">{visible.length} issues on the board</span>}
 				<div className="ms-auto flex items-center gap-2">
 					<div className="flex items-center gap-1" role="group" aria-label="Filter by assignee">
 						<Users size={14} className="me-1 text-t3" aria-hidden />

@@ -16,3 +16,4 @@ export * from './Icons';
 export * from './meta';
 export * from './Misc';
 export * from './Toaster';
+export * from './SortControl';

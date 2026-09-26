@@ -3,19 +3,21 @@ import { Link } from '@tanstack/react-router';
 import { Bell } from 'lucide-react';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { useNow } from '@/shared/lib/time';
-import { unreadCount, useDb } from '@/mocks/db';
+import { isLiveApi } from '@/shared/lib/live-api';
 import { NotificationIcon, NotificationSentence } from './NotificationItem';
+import { useUnreadCount } from '../api';
+import { useNotificationActions, useNotificationList } from '../hooks/useNotificationList';
 import { relativeTime } from '@/shared/lib/time';
 
 export function BellPopover() {
 	const org = useAuthStore((s) => s.org)!;
-	const notifications = useDb((s) => s.notifications);
-	const markAllRead = useDb((s) => s.markAllRead);
-	const markRead = useDb((s) => s.markRead);
+	const { items: notifications } = useNotificationList(org.slug, 'all');
+	const { markAllRead, markRead } = useNotificationActions();
 	const now = useNow(30_000);
+	const live = isLiveApi();
 	const [open, setOpen] = useState(false);
 	const ref = useRef<HTMLDivElement>(null);
-	const unread = unreadCount(notifications);
+	const unread = useUnreadCount();
 	const latest = [...notifications].sort((a, b) => Number(a.read) - Number(b.read) || b.at - a.at).slice(0, 4);
 
 	useEffect(() => {
@@ -42,13 +44,21 @@ export function BellPopover() {
 								<span className={`mt-3 size-1.5 shrink-0 rounded-full ${n.read ? 'bg-transparent' : 'bg-brand-600'}`} aria-hidden />
 								<NotificationIcon n={n} size="sm" />
 								<div className="min-w-0 flex-1 text-[13px]">
-									<Link to="/$org/tickets/$key" params={{ org: org.slug, key: n.ticketKey ?? 'KS-2043' }} search={{}} onClick={() => { markRead(n.id); setOpen(false); }} className="block hover:underline">
-										<NotificationSentence n={n} now={now} compact />
-									</Link>
+									{n.ticketKey || !live ? (
+										<Link to="/$org/tickets/$key" params={{ org: org.slug, key: n.ticketKey ?? 'KS-2043' }} search={{}} onClick={() => { markRead(n.id); setOpen(false); }} className="block hover:underline">
+											<NotificationSentence n={n} now={now} compact />
+										</Link>
+									) : (
+										// Not every notification points at a ticket (an invoice falling due, say).
+										<button type="button" onClick={() => markRead(n.id)} className="block text-left hover:underline">
+											<NotificationSentence n={n} now={now} compact />
+										</button>
+									)}
 									<div className="mt-0.5 text-xs text-t3">{relativeTime(n.at, now)}</div>
 								</div>
 							</li>
 						))}
+						{latest.length === 0 ? <li className="px-5 py-6 text-center text-[13px] text-t3">You're all caught up.</li> : null}
 					</ul>
 					<div className="border-t border-border px-5 py-3 text-center"><Link to="/$org/notifications" params={{ org: org.slug }} search={{}} onClick={() => setOpen(false)} className="text-[13px] font-medium text-brand-600 hover:underline">View all notifications</Link></div>
 				</div>

@@ -7,6 +7,8 @@ import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { useDb } from '@/mocks/db';
 import { toast } from '@/shared/lib/toast-store';
+import { isLiveApi } from '@/shared/lib/live-api';
+import { RolesMatrix } from '../components/RolesMatrix';
 
 type Level = 'yes' | 'limited' | 'no';
 interface Perm { id: string; label: string; sub?: string; scope?: string[] }
@@ -29,6 +31,7 @@ const next: Record<Level, Level> = { no: 'yes', yes: 'limited', limited: 'no' };
 
 export function RolesPage() {
 	const org = useAuthStore((s) => s.org)!;
+	const live = isLiveApi();
 	const members = useDb((s) => s.members);
 	const [roles, setRoles] = useState(initialRoles);
 	const [matrix, setMatrix] = useState(initial);
@@ -40,10 +43,13 @@ export function RolesPage() {
 		<AppShell meta={{ title: 'Roles & permissions', subtitle: 'Workspace · Team & roles · Permissions' }} mobileHeader={<MobileHeader><Link to="/$org/users" params={{ org: org.slug }} search={{}} className="flex items-center gap-1 text-[13px] text-on-dark-muted"><ChevronLeft size={16} /> Team</Link><h1 className="mt-1 text-xl font-semibold">Roles &amp; permissions</h1></MobileHeader>}>
 			<div className="hidden flex-wrap items-center gap-3 lg:flex">
 				<Link to="/$org/users" params={{ org: org.slug }} search={{}}><Button variant="ghost"><ChevronLeft size={14} aria-hidden /> Team</Button></Link>
-				<span className="ms-auto text-xs text-t2">Changes apply immediately · logged to audit</span>
-				<Button onClick={addRole}><Plus size={15} aria-hidden /> Custom role</Button>
-				<Button variant="primary" disabled={!dirty} onClick={() => { setDirty(false); toast('Permissions saved', { tone: 'success', description: 'Logged to the audit trail.' }); }}>Save changes</Button>
+				{live ? <span className="ms-auto text-xs text-t2">Read-only · roles are fixed</span> : <>
+					<span className="ms-auto text-xs text-t2">Changes apply immediately · logged to audit</span>
+					<Button onClick={addRole}><Plus size={15} aria-hidden /> Custom role</Button>
+					<Button variant="primary" disabled={!dirty} onClick={() => { setDirty(false); toast('Permissions saved', { tone: 'success', description: 'Logged to the audit trail.' }); }}>Save changes</Button>
+				</>}
 			</div>
+			{live ? <RolesMatrix orgSlug={org.slug} /> : <>
 			<Card className="mt-4 overflow-x-auto">
 				<table className="w-full min-w-[820px] text-[13px]">
 					<thead><tr className="bg-muted text-[11px] font-semibold tracking-wider text-t2 uppercase"><th className="px-5 py-3 text-left">Permission</th>{roles.map((r) => <th key={r} className="px-3 py-3 text-center">{r}<div className="text-[11px] font-normal normal-case tracking-normal">{countFor(r)}</div></th>)}</tr></thead>
@@ -56,6 +62,7 @@ export function RolesPage() {
 				<div className="flex flex-wrap items-center gap-5 border-t border-border px-5 py-3 text-xs text-t2"><span className="flex items-center gap-1.5"><span className="size-4 rounded-[5px] bg-brand-900" /> Allowed</span><span className="flex items-center gap-1.5"><span className="size-4 rounded-[5px] bg-brand-100" /> Limited (own / with approval)</span><span className="flex items-center gap-1.5"><span className="size-4 rounded-[5px] border border-border-strong" /> Not allowed</span><span className="ms-auto">Client role applies to portal users invited by each client account · click a cell to cycle</span></div>
 			</Card>
 			<div className="mt-3 flex justify-end gap-2 lg:hidden"><Button variant="primary" disabled={!dirty} onClick={() => { setDirty(false); toast('Permissions saved', { tone: 'success' }); }}>Save changes</Button></div>
+			</>}
 		</AppShell>
 	);
 }

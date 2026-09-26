@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { ChevronDown, Filter, Plus, CalendarDays } from 'lucide-react';
 import { AppShell, MobileHeader } from '@/shared/layouts/AppShell';
@@ -7,15 +7,18 @@ import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { usePaletteStore } from '@/shared/lib/palette-store';
 import { useNow, dueLabel } from '@/shared/lib/time';
-import { useDb, slaRunning } from '@/mocks/db';
-import { statusCategory, allPriorities } from '@/mocks/seed';
-import type { Ticket, Priority } from '@/mocks/types';
+import { slaRunning } from '@/mocks/db';
+import { allPriorities } from '@/mocks/seed';
+import type { Priority } from '@/mocks/types';
 import { priorityLabel } from '@/shared/ui/meta';
 import { SlaCountdown } from '@/features/tickets/components/TicketBits';
 import { TicketCards } from '@/features/tickets/components/TicketCards';
 import { TicketDetail } from '@/features/tickets/components/TicketDetail';
 import { CreateTicketDialog } from '@/features/tickets/components/CreateTicketDialog';
 import { useActor } from '@/features/tickets/hooks/useActor';
+import { useTicketActions } from '@/features/tickets/hooks/useTicketActions';
+import { useMyWork } from '../hooks/useMyWork';
+import { useTodaySchedule } from '../hooks/useTodaySchedule';
 
 import { inboxTabs, type InboxSearch, type InboxTab } from '../model';
 
@@ -27,44 +30,21 @@ const todayEvents = [
 	{ time: '16:30', title: 'Roadmap review', sub: 'with Kemi, Yemi', color: '#6b3fa0' },
 ];
 
-function bucket(t: Ticket, tab: InboxTab, meId: string) {
-	const open = statusCategory[t.status] !== 'done';
-	switch (tab) {
-		case 'assigned':
-			return open && t.assigneeId === meId;
-		case 'mentioned':
-			return t.mentionedIds.includes(meId);
-		case 'watching':
-			return open && t.watcherIds.includes(meId);
-		case 'created':
-			return t.createdById === meId || t.reporter.id === meId;
-	}
-}
-
-function sortForTab(list: Ticket[], now: number) {
-	return [...list].sort((a, b) => {
-		const da = slaRunning(a) ? a.sla!.resolveDueAt : (a.dueAt ?? Number.POSITIVE_INFINITY);
-		const db = slaRunning(b) ? b.sla!.resolveDueAt : (b.dueAt ?? Number.POSITIVE_INFINITY);
-		return da - db || b.updatedAt - a.updatedAt || (now ? 0 : 0);
-	});
-}
-
 export function MyWorkPage() {
 	const org = useAuthStore((s) => s.org)!;
 	const user = useAuthStore((s) => s.user)!;
 	const actor = useActor();
 	const navigate = useNavigate();
 	const search = useSearch({ from: '/authed/$org/inbox' });
-	const tickets = useDb((s) => s.tickets);
-	const assign = useDb((s) => s.assign);
+	const actions = useTicketActions(org.slug);
 	const setFocusedKey = usePaletteStore((s) => s.setFocusedKey);
 	const openPalette = usePaletteStore((s) => s.setOpen);
 	const now = useNow(30_000);
 	const [focus, setFocus] = useState(0);
 	const [creating, setCreating] = useState(false);
 
-	const counts = useMemo(() => Object.fromEntries(inboxTabs.map((tab) => [tab, tickets.filter((t) => bucket(t, tab, user.id)).length])) as Record<InboxTab, number>, [tickets, user.id]);
-	const list = useMemo(() => sortForTab(tickets.filter((t) => bucket(t, search.tab, user.id) && (!search.priority || t.priority === search.priority)), now), [tickets, search.tab, search.priority, user.id, now]);
+	const { list, counts, atRisk, loading } = useMyWork(org.slug, user.id, search);
+	const today = useTodaySchedule(org.slug, todayEvents).events;
 	const needYou = counts.assigned + counts.mentioned;
 
 	const setSearch = (patch: Partial<InboxSearch>) => navigate({ to: '/$org/inbox', params: { org: org.slug }, search: { ...search, ...patch }, replace: true });
@@ -81,7 +61,7 @@ export function MyWorkPage() {
 			if (e.key === 'j' || e.key === 'ArrowDown') { e.preventDefault(); setFocus((f) => Math.min(list.length - 1, f + 1)); }
 			else if (e.key === 'k' || e.key === 'ArrowUp') { e.preventDefault(); setFocus((f) => Math.max(0, f - 1)); }
 			else if (e.key === 'Enter' && list[focus]) openTicket(list[focus].key);
-			else if (e.key === 'a' && list[focus]) { const t = list[focus]; assign(t.key, t.assigneeId === actor.id ? undefined : actor.id, actor); }
+			else if (e.key === 'a' && list[focus]) { const t = list[focus]; void actions.assign(t, t.assigneeId === actor.id ? undefined : actor.id); }
 			else if (e.key === 'c') setCreating(true);
 		};
 		window.addEventListener('keydown', onKey);
@@ -138,7 +118,9 @@ export function MyWorkPage() {
 							Sorted by due · <Kbd>J</Kbd> <Kbd>K</Kbd> move · <Kbd>↵</Kbd> open · <Kbd>A</Kbd> assign · <Kbd>⌘K</Kbd> actions
 						</span>
 					</div>
-					{list.length === 0 ? (
+					{list.length === 0 && loading ? (
+						<p className="px-5 py-8 text-center text-[13px] text-t3">Loading your work…</p>
+					) : list.length === 0 ? (
 						<EmptyState title="Nothing here" action={<Button onClick={() => openPalette(true)}>Open command palette</Button>}>
 							You're all caught up in this view.
 						</EmptyState>
@@ -187,13 +169,14 @@ export function MyWorkPage() {
 						<div className="flex items-center justify-between">
 							<div>
 								<h3 className="text-sm font-semibold">Today</h3>
-								<p className="text-xs text-t2">{todayEvents.length} events</p>
+								<p className="text-xs text-t2">{today.length} event{today.length === 1 ? '' : 's'}</p>
 							</div>
 							<CalendarDays size={16} className="text-t3" aria-hidden />
 						</div>
 						<ul className="mt-3 space-y-2.5 text-[13px]">
-							{todayEvents.map((e) => (
-								<li key={e.time} className="flex items-center gap-3">
+							{today.length === 0 ? <li className="text-xs text-t3">Nothing scheduled today.</li> : null}
+							{today.map((e) => (
+								<li key={`${e.time}-${e.title}`} className="flex items-center gap-3">
 									<span className="tabular w-11 text-xs text-t2">{e.time}</span>
 									<span className="h-7 w-[3px] rounded-sm" style={{ background: e.color }} aria-hidden />
 									<span>
@@ -208,7 +191,7 @@ export function MyWorkPage() {
 						<h3 className="text-sm font-semibold">At a glance</h3>
 						<dl className="mt-3 grid grid-cols-2 gap-3 text-[13px]">
 							<div className="rounded-sm bg-muted p-3"><dt className="text-xs text-t2">Assigned to me</dt><dd className="tabular text-xl font-semibold">{counts.assigned}</dd></div>
-							<div className="rounded-sm bg-muted p-3"><dt className="text-xs text-t2">SLA at risk</dt><dd className="tabular text-xl font-semibold text-high-fg">{list.filter((t) => t.sla && slaRunning(t) && t.sla.resolveDueAt - now < 2 * 3600_000).length}</dd></div>
+							<div className="rounded-sm bg-muted p-3"><dt className="text-xs text-t2">SLA at risk</dt><dd className="tabular text-xl font-semibold text-high-fg">{atRisk ?? list.filter((t) => t.sla && slaRunning(t) && t.sla.resolveDueAt - now < 2 * 3600_000).length}</dd></div>
 							<div className="rounded-sm bg-muted p-3"><dt className="text-xs text-t2">Mentions</dt><dd className="tabular text-xl font-semibold">{counts.mentioned}</dd></div>
 							<div className="rounded-sm bg-muted p-3"><dt className="text-xs text-t2">Watching</dt><dd className="tabular text-xl font-semibold">{counts.watching}</dd></div>
 						</dl>

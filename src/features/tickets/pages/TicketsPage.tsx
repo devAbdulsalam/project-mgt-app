@@ -6,12 +6,40 @@ import { Button, DarkChips, EmptyState, Menu, Pagination, PillTabs } from '@/sha
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { useNow } from '@/shared/lib/time';
 import { useDb } from '@/mocks/db';
+import { useTicketList } from '../hooks/useTicketList';
+import { isLiveApi } from '@/shared/lib/live-api';
 import { toast } from '@/shared/lib/toast-store';
-import { activeFilterCount, exportCsv, filterTickets, PAGE_SIZE, savedViews, tabCounts, tabLabels, ticketTabs, type TicketSearch, type TicketTab } from '../model/filters';
+import { activeFilterCount, exportCsv, PAGE_SIZE, savedViews, tabCounts, tabLabels, ticketTabs, type TicketSearch, type TicketTab } from '../model/filters';
 import { TicketTable } from '../components/TicketTable';
 import { TicketCards } from '../components/TicketCards';
 import { FilterBar } from '../components/FilterBar';
 import { BulkBar } from '../components/BulkBar';
+
+/**
+ * Previous/next pager for cursor-paginated results.
+ *
+ * Keyset pagination has no page numbers to jump to — a cursor points at a row,
+ * not an offset — so the control is deliberately simpler than the mock one.
+ */
+function CursorPager({ state, className = '' }: { state: ReturnType<typeof useTicketList>; className?: string }) {
+	const from = (state.page - 1) * state.pageSize + 1;
+	const to = Math.min(state.total, from + state.items.length - 1);
+	return (
+		<div className={`flex items-center justify-end gap-3 ${className}`}>
+			<div className="flex items-center gap-2">
+				<span className="tabular text-[13px] text-t2" aria-live="polite">
+					{state.total ? `${from}–${to} of ${state.total}` : ''}
+				</span>
+				<Button variant="secondary" disabled={!state.canPrevious} onClick={state.goPrevious}>
+					Previous
+				</Button>
+				<Button variant="secondary" disabled={!state.canNext} onClick={state.goNext}>
+					Next
+				</Button>
+			</div>
+		</div>
+	);
+}
 
 /**
  * Reusable ticket list (global queue or project-scoped). Owns selection + pagination;
@@ -20,14 +48,19 @@ import { BulkBar } from '../components/BulkBar';
 export function TicketList({ search, onSearchChange, onOpen, projectKey, toolbar, orgSlug }: { search: TicketSearch; onSearchChange: (patch: Partial<TicketSearch>) => void; onOpen: (key: string) => void; projectKey?: string; toolbar?: ReactNode; orgSlug: string }) {
 	const now = useNow(15_000);
 	const user = useAuthStore((s) => s.user)!;
-	const tickets = useDb((s) => s.tickets);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
 
-	const counts = useMemo(() => tabCounts(tickets, user.id, now, projectKey), [tickets, user.id, now, projectKey]);
-	const filtered = useMemo(() => filterTickets(tickets, search, user.id, now, projectKey), [tickets, search, user.id, now, projectKey]);
-	const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-	const page = Math.min(search.page, pageCount);
-	const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+	// Reads from the mock store or the live API depending on VITE_USE_LIVE_API;
+	// the shape it returns is the same either way.
+	const list = useTicketList(search, orgSlug, projectKey);
+	const counts = list.counts;
+	const pageItems = list.items;
+	const pageCount = list.pageCount;
+	const page = list.page;
+	// Only the rows currently loaded can be exported. Against the live API that
+	// is one page, not the whole filtered set — the toast says which, rather
+	// than claiming a total that was never fetched.
+	const exportable = list.items;
 
 	const toggle = (key: string) =>
 		setSelected((s) => {
@@ -60,8 +93,13 @@ export function TicketList({ search, onSearchChange, onOpen, projectKey, toolbar
 					/>
 					<Button
 						onClick={() => {
-							exportCsv(filtered);
-							toast(`Exported ${filtered.length} tickets to CSV`, { tone: 'success' });
+							exportCsv(exportable);
+							toast(
+								list.cursored
+									? `Exported ${exportable.length} tickets on this page to CSV`
+									: `Exported ${exportable.length} tickets to CSV`,
+								{ tone: 'success' },
+							);
 						}}
 					>
 						<Download size={15} aria-hidden /> Export
@@ -86,7 +124,7 @@ export function TicketList({ search, onSearchChange, onOpen, projectKey, toolbar
 				</div>
 			</div>
 
-			{filtered.length === 0 ? (
+			{pageItems.length === 0 ? (
 				<div className="card">
 					<EmptyState icon={<TicketIcon size={20} />} title="No tickets match" action={activeFilterCount(search) ? <Button onClick={() => onSearchChange({ channel: undefined, priority: undefined, type: undefined, client: undefined, assignee: undefined, q: undefined, page: 1 })}>Clear filters</Button> : null}>
 						{activeFilterCount(search) ? 'Try widening your filters.' : 'Nothing in this view right now.'}
@@ -102,11 +140,19 @@ export function TicketList({ search, onSearchChange, onOpen, projectKey, toolbar
 						) : (
 							<TicketTable tickets={pageItems} now={now} selected={selected} onToggle={toggle} onToggleAll={toggleAll} onOpen={onOpen} showProject={!isService} orgSlug={orgSlug} />
 						)}
-						<Pagination page={page} pageCount={pageCount} onChange={(p) => onSearchChange({ page: p })} total={filtered.length} pageSize={PAGE_SIZE} className="border-t border-border px-5 py-3.5" />
+						{list.cursored ? (
+							<CursorPager state={list} className="border-t border-border px-5 py-3.5" />
+						) : (
+							<Pagination page={page} pageCount={pageCount} onChange={(p) => onSearchChange({ page: p })} total={list.total} pageSize={PAGE_SIZE} className="border-t border-border px-5 py-3.5" />
+						)}
 					</div>
 					<div className="lg:hidden" data-tour="m-list">
 						<TicketCards tickets={pageItems} now={now} onOpen={onOpen} />
-						<Pagination page={page} pageCount={pageCount} onChange={(p) => onSearchChange({ page: p })} total={filtered.length} pageSize={PAGE_SIZE} className="pt-4" />
+						{list.cursored ? (
+							<CursorPager state={list} className="pt-4" />
+						) : (
+							<Pagination page={page} pageCount={pageCount} onChange={(p) => onSearchChange({ page: p })} total={list.total} pageSize={PAGE_SIZE} className="pt-4" />
+						)}
 					</div>
 				</>
 			)}
@@ -122,7 +168,11 @@ export function TicketsPage() {
 	const params = useParams({ strict: false }) as { key?: string };
 	const tickets = useDb((s) => s.tickets);
 	const now = useNow(60_000);
-	const counts = useMemo(() => tabCounts(tickets, user.id, now), [tickets, user.id, now]);
+	// Mobile tab chips; the list itself gets its counts from useTicketList.
+	const counts = useMemo(
+		() => (isLiveApi() ? ({} as Record<string, number>) : tabCounts(tickets, user.id, now)),
+		[tickets, user.id, now],
+	);
 
 	const onSearchChange = useCallback(
 		(patch: Partial<TicketSearch>) => navigate({ to: '/$org/tickets', params: { org: org.slug }, search: { ...search, ...patch }, replace: true }),

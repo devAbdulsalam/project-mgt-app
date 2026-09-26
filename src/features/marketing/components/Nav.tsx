@@ -5,6 +5,7 @@ import { Wordmark } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
 import { useScrolled } from '../hooks/useScrolled';
 import { container } from './bits';
+import { AuthLink } from './AuthLink';
 
 const links = [
 	{ label: 'Product', href: '#product' },
@@ -43,12 +44,12 @@ export function Nav() {
 				</nav>
 
 				<div className="ml-auto hidden items-center gap-2 md:flex">
-					<Link to="/login" search={{}} className="rounded-full px-4 py-2 text-[13.5px] font-medium text-t2 transition-colors hover:bg-muted hover:text-t1">
+					<AuthLink to="login" signedInLabel="Open dashboard" className="rounded-full px-4 py-2 text-[13.5px] font-medium text-t2 transition-colors hover:bg-muted hover:text-t1">
 						Sign in
-					</Link>
-					<Link to="/signup" className="rounded-full border border-border-strong bg-white px-5 py-2.5 text-[13.5px] font-semibold text-t1 shadow-card transition-all hover:-translate-y-px hover:border-brand-900 hover:bg-brand-900 hover:text-white">
+					</AuthLink>
+					<AuthLink to="signup" signedInLabel="Dashboard" className="rounded-full border border-border-strong bg-white px-5 py-2.5 text-[13.5px] font-semibold text-t1 shadow-card transition-all hover:-translate-y-px hover:border-brand-900 hover:bg-brand-900 hover:text-white">
 						Get Started
-					</Link>
+					</AuthLink>
 				</div>
 
 				<button
@@ -71,8 +72,8 @@ export function Nav() {
 						</a>
 					))}
 					<div className="mt-2 grid grid-cols-2 gap-2 border-t border-border pt-3">
-						<Link to="/login" search={{}} className="rounded-full border border-border-strong py-2.5 text-center text-[14px] font-medium">Sign in</Link>
-						<Link to="/signup" className="rounded-full bg-brand-900 py-2.5 text-center text-[14px] font-semibold text-white">Get Started</Link>
+						<AuthLink to="login" signedInLabel="Open dashboard" className="rounded-full border border-border-strong py-2.5 text-center text-[14px] font-medium">Sign in</AuthLink>
+						<AuthLink to="signup" signedInLabel="Dashboard" className="rounded-full bg-brand-900 py-2.5 text-center text-[14px] font-semibold text-white">Get Started</AuthLink>
 					</div>
 				</div>
 			</div>

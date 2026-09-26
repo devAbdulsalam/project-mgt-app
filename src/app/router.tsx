@@ -1,20 +1,25 @@
 import { createRootRoute, createRoute, createRouter, lazyRouteComponent, redirect, Outlet, type SearchSchemaInput } from '@tanstack/react-router';
+import { boardsSearchSchema, type BoardsSearch } from '@/features/boards/model';
+import { OrgLayout } from '@/features/team/OrgLayout';
 import { z } from 'zod';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { NotFoundPage } from '@/features/system/NotFoundPage';
 import { RouteFallback } from '@/features/system/RouteFallback';
 import { ticketSearchSchema, type TicketSearch } from '@/features/tickets/model/filters';
 import { inboxSearchSchema, type InboxSearch } from '@/features/inbox/model';
-import { projectsSearchSchema, boardSearchSchema } from '@/features/projects/model';
+import { projectsSearchSchema, boardSearchSchema, calendarSearchSchema, workloadSearchSchema, type CalendarSearch, type WorkloadSearch } from '@/features/projects/model';
 import { notificationsSearchSchema } from '@/features/notifications/model';
 import { teamSearchSchema } from '@/features/team/model';
 import { dashboardSearchSchema, type DashboardSearch } from '@/features/dashboard/model';
 import { clientsSearchSchema, clientDetailSearchSchema } from '@/features/clients/model';
 import { assetsSearchSchema } from '@/features/assets/model';
 import { visitsSearchSchema } from '@/features/visits/model';
+import { programDetailSearchSchema, programsSearchSchema } from '@/features/programs/model';
+import { expensesSearchSchema } from '@/features/expenses/model';
 import { kbSearchSchema } from '@/features/kb/model';
 import { reportsSearchSchema } from '@/features/reports/model';
 import { profileSearchSchema } from '@/features/profile/model';
+import { usersSearchSchema, orgsSearchSchema, auditSearchSchema, type UsersSearch, type OrgsSearch, type AuditSearch } from '@/features/console/model';
 
 // Route-level code splitting: each page is its own chunk.
 const LandingPage = lazyRouteComponent(() => import('@/features/marketing/pages/LandingPage'), 'LandingPage');
@@ -37,6 +42,9 @@ const ProjectOverviewPage = lazyRouteComponent(() => import('@/features/projects
 const ProjectListPage = lazyRouteComponent(() => import('@/features/projects/pages/ProjectListPage'), 'ProjectListPage');
 const ProjectBoardPage = lazyRouteComponent(() => import('@/features/projects/pages/ProjectBoardPage'), 'ProjectBoardPage');
 const ProjectStubTab = lazyRouteComponent(() => import('@/features/projects/pages/ProjectStubTab'), 'ProjectStubTab');
+const ProjectCalendarPage = lazyRouteComponent(() => import('@/features/projects/pages/ProjectCalendarPage'), 'ProjectCalendarPage');
+const ProjectWorkloadPage = lazyRouteComponent(() => import('@/features/projects/pages/ProjectWorkloadPage'), 'ProjectWorkloadPage');
+const ProjectSettingsPage = lazyRouteComponent(() => import('@/features/projects/pages/ProjectSettingsPage'), 'ProjectSettingsPage');
 const NotificationsPage = lazyRouteComponent(() => import('@/features/notifications/pages/NotificationsPage'), 'NotificationsPage');
 const TeamPage = lazyRouteComponent(() => import('@/features/team/pages/TeamPage'), 'TeamPage');
 const RolesPage = lazyRouteComponent(() => import('@/features/team/pages/RolesPage'), 'RolesPage');
@@ -45,11 +53,34 @@ const ClientsPage = lazyRouteComponent(() => import('@/features/clients/pages/Cl
 const ClientDetailPage = lazyRouteComponent(() => import('@/features/clients/pages/ClientDetailPage'), 'ClientDetailPage');
 const AssetsPage = lazyRouteComponent(() => import('@/features/assets/AssetsPage'), 'AssetsPage');
 const VisitsPage = lazyRouteComponent(() => import('@/features/visits/VisitsPage'), 'VisitsPage');
+const ProgramsPage = lazyRouteComponent(() => import('@/features/programs/pages/ProgramsPage'), 'ProgramsPage');
+const ProgramDetailPage = lazyRouteComponent(() => import('@/features/programs/pages/ProgramDetailPage'), 'ProgramDetailPage');
+const ExpensesPage = lazyRouteComponent(() => import('@/features/expenses/ExpensesPage'), 'ExpensesPage');
 const KbPage = lazyRouteComponent(() => import('@/features/kb/KbPages'), 'KbPage');
 const KbArticlePage = lazyRouteComponent(() => import('@/features/kb/KbPages'), 'KbArticlePage');
 const ReportsPage = lazyRouteComponent(() => import('@/features/reports/ReportsPage'), 'ReportsPage');
 const SettingsPage = lazyRouteComponent(() => import('@/features/settings/SettingsPage'), 'SettingsPage');
 const ProfilePage = lazyRouteComponent(() => import('@/features/profile/ProfilePage'), 'ProfilePage');
+
+// ---------- Platform console ----------
+//
+// Deliberately a sibling of `authedRoute`, not a child of it. The product's guard
+// requires an org, and a platform operator is explicitly someone who may belong
+// to no workspace at all — nesting the console under it would lock out exactly the
+// people who most need the surface. The console has its own gate, in
+// features/console/ConsoleLayout.tsx.
+
+const ConsoleLayout = lazyRouteComponent(() => import('@/features/console/ConsoleLayout'), 'ConsoleLayout');
+const ConsoleSignInPage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleSignInPage'), 'ConsoleSignInPage');
+const ConsoleOverviewPage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleOverviewPage'), 'ConsoleOverviewPage');
+const ConsoleUsersPage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleUsersPage'), 'ConsoleUsersPage');
+const ConsoleUserDetailPage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleUserDetailPage'), 'ConsoleUserDetailPage');
+const ConsoleOrgsPage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleOrgsPage'), 'ConsoleOrgsPage');
+const ConsoleOrgDetailPage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleOrgDetailPage'), 'ConsoleOrgDetailPage');
+const ConsoleOrgCreatePage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleOrgCreatePage'), 'ConsoleOrgCreatePage');
+const ConsoleOperatorsPage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleOperatorsPage'), 'ConsoleOperatorsPage');
+const ConsoleAuditPage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleAuditPage'), 'ConsoleAuditPage');
+const ConsoleSecurityPage = lazyRouteComponent(() => import('@/features/console/pages/ConsoleSecurityPage'), 'ConsoleSecurityPage');
 
 const rootRoute = createRootRoute({ component: Outlet, notFoundComponent: NotFoundPage, pendingComponent: RouteFallback });
 
@@ -57,16 +88,9 @@ const redirectSearch = z.object({ redirect: z.string().optional() });
 
 // ---------- Public / auth ----------
 
-// Public marketing landing page; signed-in users go straight to their dashboard.
-const indexRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: '/',
-	beforeLoad: () => {
-		const { status, org } = useAuthStore.getState();
-		if (status === 'authenticated' && org) throw redirect({ to: '/$org/dashboard', params: { org: org.slug }, search: {} });
-	},
-	component: LandingPage,
-});
+// Public marketing landing page. Signed-in visitors can still read it; its
+// sign-in and get-started links take them to their dashboard instead.
+const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: LandingPage });
 
 const loginRoute = createRoute({
 	getParentRoute: () => rootRoute,
@@ -79,7 +103,15 @@ const loginRoute = createRoute({
 	component: LoginPage,
 });
 const loginOtpRoute = createRoute({ getParentRoute: () => rootRoute, path: '/login/verify', validateSearch: redirectSearch, component: LoginOtpPage });
-const signupRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signup', component: SignupPage });
+const signupRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: '/signup',
+	beforeLoad: () => {
+		const { status, org } = useAuthStore.getState();
+		if (status === 'authenticated' && org) throw redirect({ to: '/$org/dashboard', params: { org: org.slug }, search: {} });
+	},
+	component: SignupPage,
+});
 const signupVerifyRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signup/verify', component: SignupVerifyPage });
 const signupWorkspaceRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signup/workspace', component: SignupWorkspacePage });
 const signupTeamRoute = createRoute({ getParentRoute: () => rootRoute, path: '/signup/team', component: SignupTeamPage });
@@ -134,7 +166,7 @@ const orgRoute = createRoute({
 			else throw redirect({ to: '/$org/dashboard', params: { org: org.slug }, replace: true, search: {} });
 		}
 	},
-	component: Outlet,
+	component: OrgLayout,
 });
 
 const orgIndexRoute = createRoute({ getParentRoute: () => orgRoute, path: '/', beforeLoad: ({ params }) => { throw redirect({ to: '/$org/dashboard', params: { org: params.org }, search: {} }); } });
@@ -154,20 +186,27 @@ const projectOverviewRoute = createRoute({ getParentRoute: () => projectRoute, p
 const projectListSchema = ticketSearchSchema.extend({ panel: z.string().optional() });
 const projectListRoute = createRoute({ getParentRoute: () => projectRoute, path: 'list', validateSearch: (input: Partial<z.infer<typeof projectListSchema>> & SearchSchemaInput) => projectListSchema.parse(input), component: ProjectListPage });
 const projectBoardRoute = createRoute({ getParentRoute: () => projectRoute, path: 'board', validateSearch: (input: z.infer<typeof boardSearchSchema> & SearchSchemaInput) => boardSearchSchema.parse(input), component: ProjectBoardPage });
-const projectStubRoutes = (['backlog', 'sprints', 'roadmap', 'calendar', 'workload', 'settings'] as const).map((section) =>
+const projectStubRoutes = (['backlog', 'sprints', 'roadmap'] as const).map((section) =>
 	createRoute({ getParentRoute: () => projectRoute, path: section, component: () => <ProjectStubTab section={section} /> }),
 );
+const projectCalendarRoute = createRoute({ getParentRoute: () => projectRoute, path: 'calendar', validateSearch: (input: Partial<CalendarSearch> & SearchSchemaInput) => calendarSearchSchema.parse(input), component: ProjectCalendarPage });
+const projectWorkloadRoute = createRoute({ getParentRoute: () => projectRoute, path: 'workload', validateSearch: (input: Partial<WorkloadSearch> & SearchSchemaInput) => workloadSearchSchema.parse(input), component: ProjectWorkloadPage });
+const projectSettingsIndexRoute = createRoute({ getParentRoute: () => projectRoute, path: 'settings', beforeLoad: ({ params }) => { throw redirect({ to: '/$org/projects/$projectKey/settings/$section', params: { ...params, section: 'general' }, replace: true }); } });
+const projectSettingsRoute = createRoute({ getParentRoute: () => projectRoute, path: 'settings/$section', component: ProjectSettingsPage });
 
 const notificationsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'notifications', validateSearch: (input: Partial<z.infer<typeof notificationsSearchSchema>> & SearchSchemaInput) => notificationsSearchSchema.parse(input), component: NotificationsPage });
 
 const usersRoute = createRoute({ getParentRoute: () => orgRoute, path: 'users', validateSearch: (input: Partial<z.infer<typeof teamSearchSchema>> & SearchSchemaInput) => teamSearchSchema.parse(input), component: TeamPage });
 const rolesRoute = createRoute({ getParentRoute: () => orgRoute, path: 'users/roles', component: RolesPage });
 
-const boardsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'boards', component: BoardsPage });
+const boardsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'boards', validateSearch: (input: Partial<BoardsSearch> & SearchSchemaInput) => boardsSearchSchema.parse(input), component: BoardsPage });
 const clientsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'customers', validateSearch: (input: Partial<z.infer<typeof clientsSearchSchema>> & SearchSchemaInput) => clientsSearchSchema.parse(input), component: ClientsPage });
 const clientDetailRoute = createRoute({ getParentRoute: () => orgRoute, path: 'customers/$clientId', validateSearch: (input: Partial<z.infer<typeof clientDetailSearchSchema>> & SearchSchemaInput) => clientDetailSearchSchema.parse(input), component: ClientDetailPage });
 const assetsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'assets', validateSearch: (input: Partial<z.infer<typeof assetsSearchSchema>> & SearchSchemaInput) => assetsSearchSchema.parse(input), component: AssetsPage });
 const visitsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'visits', validateSearch: (input: Partial<z.infer<typeof visitsSearchSchema>> & SearchSchemaInput) => visitsSearchSchema.parse(input), component: VisitsPage });
+const programsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'programs', validateSearch: (input: Partial<z.infer<typeof programsSearchSchema>> & SearchSchemaInput) => programsSearchSchema.parse(input), component: ProgramsPage });
+const programDetailRoute = createRoute({ getParentRoute: () => orgRoute, path: 'programs/$programKey', validateSearch: (input: Partial<z.infer<typeof programDetailSearchSchema>> & SearchSchemaInput) => programDetailSearchSchema.parse(input), component: ProgramDetailPage });
+const expensesRoute = createRoute({ getParentRoute: () => orgRoute, path: 'expenses', validateSearch: (input: Partial<z.infer<typeof expensesSearchSchema>> & SearchSchemaInput) => expensesSearchSchema.parse(input), component: ExpensesPage });
 const kbRoute = createRoute({ getParentRoute: () => orgRoute, path: 'kb', validateSearch: (input: Partial<z.infer<typeof kbSearchSchema>> & SearchSchemaInput) => kbSearchSchema.parse(input), component: KbPage });
 const kbArticleRoute = createRoute({ getParentRoute: () => orgRoute, path: 'kb/$slug', component: KbArticlePage });
 const reportsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'reports', validateSearch: (input: Partial<z.infer<typeof reportsSearchSchema>> & SearchSchemaInput) => reportsSearchSchema.parse(input), component: ReportsPage });
@@ -176,6 +215,48 @@ const settingsRoute = createRoute({ getParentRoute: () => orgRoute, path: 'setti
 
 const profileRoute = createRoute({ getParentRoute: () => orgRoute, path: 'me', validateSearch: (input: Partial<z.infer<typeof profileSearchSchema>> & SearchSchemaInput) => profileSearchSchema.parse(input), component: ProfilePage });
 const stubRoutes: ReturnType<typeof createRoute>[] = [];
+
+// ---------- Platform console ----------
+//
+// The sign-in route sits outside the gate: a signed-in operator following a
+// colleague's link to /console should not be shown a form, and an expired cookie
+// should not land an operator on a layout that cannot render.
+const consoleSignInRoute = createRoute({ getParentRoute: () => rootRoute, path: '/console/sign-in', validateSearch: z.object({}), component: ConsoleSignInPage });
+
+const consoleRoute = createRoute({ getParentRoute: () => rootRoute, id: 'console', path: '/console', component: ConsoleLayout });
+
+const consoleIndexRoute = createRoute({ getParentRoute: () => consoleRoute, path: '/', beforeLoad: () => { throw redirect({ to: '/console/overview', search: {} }); } });
+const consoleOverviewRoute = createRoute({ getParentRoute: () => consoleRoute, path: 'overview', component: ConsoleOverviewPage });
+
+// Search params are validated per route, so a shared URL is parsed rather than
+// trusted — `?limit=9999` is a 422 from the server, and the schema turns it into
+// the 100 the server caps at before the request is made.
+const consoleUsersRoute = createRoute({
+	getParentRoute: () => consoleRoute,
+	path: 'users',
+	validateSearch: (input: Partial<UsersSearch> & SearchSchemaInput) => usersSearchSchema.parse(input),
+	component: ConsoleUsersPage,
+});
+const consoleUserDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: 'users/$userId', component: ConsoleUserDetailPage });
+
+const consoleOrgsRoute = createRoute({
+	getParentRoute: () => consoleRoute,
+	path: 'workspaces',
+	validateSearch: (input: Partial<OrgsSearch> & SearchSchemaInput) => orgsSearchSchema.parse(input),
+	component: ConsoleOrgsPage,
+});
+// Declared before $slug so /console/workspaces/new is not read as a slug.
+const consoleOrgCreateRoute = createRoute({ getParentRoute: () => consoleRoute, path: 'workspaces/new', component: ConsoleOrgCreatePage });
+const consoleOrgDetailRoute = createRoute({ getParentRoute: () => consoleRoute, path: 'workspaces/$slug', component: ConsoleOrgDetailPage });
+
+const consoleOperatorsRoute = createRoute({ getParentRoute: () => consoleRoute, path: 'operators', component: ConsoleOperatorsPage });
+const consoleAuditRoute = createRoute({
+	getParentRoute: () => consoleRoute,
+	path: 'audit',
+	validateSearch: (input: Partial<AuditSearch> & SearchSchemaInput) => auditSearchSchema.parse(input),
+	component: ConsoleAuditPage,
+});
+const consoleSecurityRoute = createRoute({ getParentRoute: () => consoleRoute, path: 'security', validateSearch: z.object({}), component: ConsoleSecurityPage });
 
 const routeTree = rootRoute.addChildren([
 	indexRoute,
@@ -188,6 +269,19 @@ const routeTree = rootRoute.addChildren([
 	forgotRoute,
 	resetRoute,
 	devLoginRoute,
+	consoleSignInRoute,
+	consoleRoute.addChildren([
+		consoleIndexRoute,
+		consoleOverviewRoute,
+		consoleUsersRoute,
+		consoleUserDetailRoute,
+		consoleOrgsRoute,
+		consoleOrgCreateRoute,
+		consoleOrgDetailRoute,
+		consoleOperatorsRoute,
+		consoleAuditRoute,
+		consoleSecurityRoute,
+	]),
 	authedRoute.addChildren([
 		orgRoute.addChildren([
 			orgIndexRoute,
@@ -195,7 +289,7 @@ const routeTree = rootRoute.addChildren([
 			inboxRoute,
 			ticketsRoute.addChildren([ticketNewRoute, ticketDetailRoute]),
 			projectsRoute,
-			projectRoute.addChildren([projectIndexRoute, projectOverviewRoute, projectListRoute, projectBoardRoute, ...projectStubRoutes]),
+			projectRoute.addChildren([projectIndexRoute, projectOverviewRoute, projectListRoute, projectBoardRoute, projectCalendarRoute, projectWorkloadRoute, projectSettingsIndexRoute, projectSettingsRoute, ...projectStubRoutes]),
 			notificationsRoute,
 			usersRoute,
 			rolesRoute,
@@ -204,6 +298,9 @@ const routeTree = rootRoute.addChildren([
 			clientDetailRoute,
 			assetsRoute,
 			visitsRoute,
+			programsRoute,
+			programDetailRoute,
+			expensesRoute,
 			kbRoute,
 			kbArticleRoute,
 			reportsRoute,

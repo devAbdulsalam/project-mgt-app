@@ -6,26 +6,26 @@ import { Avatar, Button, Card, EmptyState, FilterChip, Menu, Pill, ProgressBar, 
 import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { downloadCsv } from '@/shared/lib/csv';
-import { formatNaira, formatNairaShort, useDb } from '@/mocks/db';
-import { statusCategory } from '@/mocks/seed';
+import { formatNaira, formatNairaShort } from '@/mocks/db';
 import { toast } from '@/shared/lib/toast-store';
 import { useNow } from '@/shared/lib/time';
 import { planTone, type ClientsSearch } from '../model';
 import { AddClientDialog } from '../components/ClientDialogs';
+import { useClientList } from '../api';
 
-const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+// 0 means the client has no contract end date yet (live data), not 1 Jan 1970.
+const fmtDate = (ts: number) => (ts ? new Date(ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 
 export function ClientsPage() {
 	const org = useAuthStore((s) => s.org)!;
 	const navigate = useNavigate();
 	const search = useSearch({ from: '/authed/$org/customers' });
-	const clients = useDb((s) => s.clientAccounts);
-	const tickets = useDb((s) => s.tickets);
+	const { clients, figures, loading, error, refetch } = useClientList(org.slug);
 	const now = useNow(60_000);
 	const [adding, setAdding] = useState(false);
 	const setSearch = (patch: Partial<ClientsSearch>) => navigate({ to: '/$org/customers', params: { org: org.slug }, search: { ...search, ...patch }, replace: true });
 
-	const openCount = (id: string) => tickets.filter((t) => t.clientId === id && statusCategory[t.status] !== 'done');
+	const openCount = (id: string) => figures(id).open;
 	const list = useMemo(
 		() =>
 			clients
@@ -33,19 +33,19 @@ export function ClientsPage() {
 				.filter((c) => !search.industry || c.industry === search.industry)
 				.filter((c) => !search.plan || c.plan === search.plan)
 				.filter((c) => !search.city || c.city === search.city)
-				.filter((c) => !search.renewal || c.renewalAt - now < 60 * 86_400_000)
-				.sort((a, b) => (search.sort === 'name' ? a.name.localeCompare(b.name) : search.sort === 'renewal' ? a.renewalAt - b.renewalAt : search.sort === 'health' ? (a.healthPct ?? 0) - (b.healthPct ?? 0) : search.sort === 'open' ? openCount(b.id).length - openCount(a.id).length : b.mrr - a.mrr)),
+				.filter((c) => !search.renewal || (c.renewalAt > 0 && c.renewalAt - now < 60 * 86_400_000))
+				.sort((a, b) => (search.sort === 'name' ? a.name.localeCompare(b.name) : search.sort === 'renewal' ? (a.renewalAt || 9e15) - (b.renewalAt || 9e15) : search.sort === 'health' ? (a.healthPct ?? 0) - (b.healthPct ?? 0) : search.sort === 'open' ? openCount(b.id) - openCount(a.id) : b.mrr - a.mrr)),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[clients, search, now, tickets],
+		[clients, search, now, figures],
 	);
 	const mrr = clients.reduce((s, c) => s + c.mrr, 0);
-	const renewals = clients.filter((c) => c.renewalAt - now < 60 * 86_400_000 && c.status !== 'Trial');
+	const renewals = clients.filter((c) => c.renewalAt > 0 && c.renewalAt - now < 60 * 86_400_000 && c.status !== 'Trial');
 	const avgHealth = Math.round(clients.filter((c) => c.healthPct).reduce((s, c) => s + (c.healthPct ?? 0), 0) / Math.max(1, clients.filter((c) => c.healthPct).length));
-	const industries = Array.from(new Set(clients.map((c) => c.industry)));
-	const cities = Array.from(new Set(clients.map((c) => c.city)));
+	const industries = Array.from(new Set(clients.map((c) => c.industry).filter(Boolean)));
+	const cities = Array.from(new Set(clients.map((c) => c.city).filter(Boolean)));
 
 	const exportCsv = () => {
-		downloadCsv('clients.csv', [['Client', 'RC', 'Industry', 'City', 'Plan', 'Sites', 'Assets', 'Open', 'Hours used', 'Hours included', 'Health %', 'MRR', 'Renewal'], ...list.map((c) => [c.name, c.rc, c.industry, c.city, c.plan, c.siteList.length, c.assetsCount, openCount(c.id).length, c.hoursUsed, c.hoursIncluded, c.healthPct ?? '', c.mrr, fmtDate(c.renewalAt)])]);
+		downloadCsv('clients.csv', [['Client', 'RC', 'Industry', 'City', 'Plan', 'Sites', 'Assets', 'Open', 'Hours used', 'Hours included', 'Health %', 'MRR', 'Renewal'], ...list.map((c) => [c.name, c.rc, c.industry, c.city, c.plan, figures(c.id).sites, c.assetsCount, openCount(c.id), c.hoursUsed, c.hoursIncluded, c.healthPct ?? '', c.mrr, fmtDate(c.renewalAt)])]);
 		toast(`Exported ${list.length} clients`, { tone: 'success' });
 	};
 
@@ -79,7 +79,10 @@ export function ClientsPage() {
 				<StatTile label="Avg contract health" value={`${avgHealth}%`} sub="SLA · CSAT · hours" />
 			</div>
 
-			{list.length === 0 ? <Card className="mt-4"><EmptyState title="No clients match" /></Card> : null}
+			{loading ? <Card className="mt-4"><EmptyState title="Loading clients…" /></Card> : null}
+			{error ? <Card className="mt-4"><EmptyState title="Could not load clients" action={<Button variant="primary" onClick={refetch}>Try again</Button>}>{error instanceof Error ? error.message : 'Something went wrong.'}</EmptyState></Card> : null}
+			{!loading && !error && clients.length === 0 ? <Card className="mt-4"><EmptyState title="No clients yet" action={<Button variant="primary" onClick={() => setAdding(true)}>Add the first client</Button>}>Accounts you add here get their own contract, sites, contacts and invoices.</EmptyState></Card> : null}
+			{!loading && !error && clients.length > 0 && list.length === 0 ? <Card className="mt-4"><EmptyState title="No clients match" /></Card> : null}
 
 			<Card className="mt-4 hidden overflow-x-auto lg:block" data-tour="clients-table">
 				{list.length ? (
@@ -88,21 +91,21 @@ export function ClientsPage() {
 						<tbody>
 							{list.map((c) => {
 								const open = openCount(c.id);
-								const p1 = open.filter((t) => t.priority === 'P1').length;
+								const p1 = figures(c.id).p1;
 								const over = c.hoursUsed > c.hoursIncluded && c.hoursIncluded > 0;
-								const renewSoon = c.renewalAt - now < 60 * 86_400_000;
+								const renewSoon = c.renewalAt > 0 && c.renewalAt - now < 60 * 86_400_000;
 								return (
 									<tr key={c.id} className="cursor-pointer border-t border-border hover:bg-[#fafbfc]" onClick={() => navigate({ to: '/$org/customers/$clientId', params: { org: org.slug, clientId: c.id }, search: {} })}>
 										<td className="px-4 py-3"><div className="flex items-center gap-3"><Avatar name={c.name} tint={c.tint} size="lg" /><div><b className="block">{c.name}</b><span className="text-xs text-t2">{c.rc} · {c.contacts.find((k) => k.primary)?.name}</span></div></div></td>
 										<td className="px-4 py-3"><div>{c.industry}</div><div className="text-xs text-t2">{c.city}</div></td>
 										<td className="px-4 py-3"><Pill tone={planTone[c.plan]}>{c.plan}</Pill></td>
-										<td className="tabular px-4 py-3">{c.siteList.length}</td>
+										<td className="tabular px-4 py-3">{figures(c.id).sites}</td>
 										<td className="tabular px-4 py-3">{c.assetsCount}</td>
-										<td className="tabular px-4 py-3"><b>{open.length}</b>{p1 ? <span className="ms-1 text-xs text-danger-fg">{p1} P1</span> : null}</td>
+										<td className="tabular px-4 py-3"><b>{open}</b>{p1 ? <span className="ms-1 text-xs text-danger-fg">{p1} P1</span> : null}</td>
 										<td className="px-4 py-3">{c.hoursIncluded ? <><ProgressBar value={(c.hoursUsed / c.hoursIncluded) * 100} color={over ? '#d93f3f' : c.hoursUsed / c.hoursIncluded > 0.7 ? '#e0a100' : '#2f5f70'} className="w-28" label="Hours used" /><span className={cn('text-xs', over ? 'text-danger-fg' : 'text-t2')}>{c.hoursUsed} / {c.hoursIncluded}h{over ? ' over' : ''}</span></> : <span className="text-xs text-t2">Pay-as-you-go</span>}</td>
 										<td className="px-4 py-3">{c.healthPct ? <Pill tone={c.healthPct >= 90 ? 'done' : c.healthPct >= 80 ? 'open' : 'blocked'}>{c.healthPct}%</Pill> : <Pill tone="closed">—</Pill>}</td>
 										<td className="tabular px-4 py-3 font-semibold">{formatNaira(c.mrr)}</td>
-										<td className={cn('tabular px-4 py-3', renewSoon && c.status !== 'Trial' && 'font-semibold text-high-fg')}>{c.status === 'Trial' ? `Trial ends ${new Date(c.renewalAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : fmtDate(c.renewalAt)}</td>
+										<td className={cn('tabular px-4 py-3', renewSoon && c.status !== 'Trial' && 'font-semibold text-high-fg')}>{c.status === 'Trial' ? (c.renewalAt ? `Trial ends ${new Date(c.renewalAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : 'Trial') : fmtDate(c.renewalAt)}</td>
 										<td className="px-2 py-3 text-t3"><ChevronRight size={16} /></td>
 									</tr>
 								);
@@ -114,7 +117,7 @@ export function ClientsPage() {
 
 			<div className="space-y-3 lg:hidden" data-tour="m-clients">
 				{list.map((c) => (
-					<Link key={c.id} to="/$org/customers/$clientId" params={{ org: org.slug, clientId: c.id }} search={{}} className="flex items-center gap-3 rounded-md bg-white p-3.5 shadow-card"><Avatar name={c.name} tint={c.tint} size="lg" /><div className="min-w-0 flex-1"><b className="block truncate text-[15px]">{c.name}</b><span className="block truncate text-xs text-t2">{c.industry} · {c.city} · {openCount(c.id).length} open</span></div><Pill tone={planTone[c.plan]}>{c.plan}</Pill></Link>
+					<Link key={c.id} to="/$org/customers/$clientId" params={{ org: org.slug, clientId: c.id }} search={{}} className="flex items-center gap-3 rounded-md bg-white p-3.5 shadow-card"><Avatar name={c.name} tint={c.tint} size="lg" /><div className="min-w-0 flex-1"><b className="block truncate text-[15px]">{c.name}</b><span className="block truncate text-xs text-t2">{c.industry} · {c.city} · {openCount(c.id)} open</span></div><Pill tone={planTone[c.plan]}>{c.plan}</Pill></Link>
 				))}
 			</div>
 

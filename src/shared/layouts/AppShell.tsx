@@ -23,13 +23,15 @@ import { useTourStore } from '@/features/tour/store';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { useUiStore } from '@/shared/lib/ui-store';
 import { usePaletteStore } from '@/shared/lib/palette-store';
-import { unreadCount, useDb } from '@/mocks/db';
 import { cn } from '@/shared/lib/cn';
+import { useOverlayTransition } from '@/shared/lib/use-overlay-transition';
 import { Avatar, LogoMark } from '@/shared/ui';
 import { Toaster } from '@/shared/ui/Toaster';
 import { CommandPalette } from '@/features/search/CommandPalette';
 import { BellPopover } from '@/features/notifications/components/BellPopover';
+import { useUnreadCount } from '@/features/notifications/api';
 import { sidebarNav, mobileTabs } from './nav';
+import { LogoutDialog } from './LogoutDialog';
 
 export interface PageMeta {
 	title: string;
@@ -77,8 +79,9 @@ export function AppShell({
 	);
 }
 
+/** The badge count, from the API when live and the mock store otherwise. */
 function useUnread() {
-	return useDb((s) => unreadCount(s.notifications));
+	return useUnreadCount();
 }
 
 // ---------- Desktop sidebar ----------
@@ -201,9 +204,8 @@ function UserBlock({
 	onDone?: () => void;
 }) {
 	const user = useAuthStore((s) => s.user)!;
-	const logout = useAuthStore((s) => s.logout);
-	const navigate = useNavigate();
 	const [open, setOpen] = useState(false);
+	const [confirmSignOut, setConfirmSignOut] = useState(false);
 	return (
 		<div className="relative border-t border-white/10 pt-2">
 			<button
@@ -259,9 +261,8 @@ function UserBlock({
 						role="menuitem"
 						type="button"
 						onClick={() => {
-							logout();
-							onDone?.();
-							navigate({ to: '/login', search: {} });
+							setOpen(false);
+							setConfirmSignOut(true);
 						}}
 						className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-[13px] hover:bg-muted"
 					>
@@ -269,6 +270,8 @@ function UserBlock({
 					</button>
 				</div>
 			) : null}
+			{/* Keeps the drawer mounted behind it, so cancelling leaves the menu where it was. */}
+			<LogoutDialog open={confirmSignOut} onClose={() => setConfirmSignOut(false)} onDone={onDone} />
 		</div>
 	);
 }
@@ -548,6 +551,7 @@ function MobileDrawer({
 	const orgsAvailable = useAuthStore((s) => s.availableOrgs);
 	const switchOrg = useAuthStore((s) => s.switchOrg);
 	const navigate = useNavigate();
+	const { mounted, shown } = useOverlayTransition(open);
 
 	useEffect(() => {
 		if (!open) return;
@@ -561,20 +565,28 @@ function MobileDrawer({
 		};
 	}, [open, onClose]);
 
-	if (!open) return null;
+	if (!mounted) return null;
 	return (
 		<div
-			className="fixed inset-0 z-50 lg:hidden"
+			className={cn('fixed inset-0 z-50 lg:hidden', !shown && 'pointer-events-none')}
 			role="dialog"
 			aria-modal="true"
 			aria-label="Menu"
 		>
 			<div
-				className="absolute inset-0 bg-[rgba(27,42,50,.5)]"
+				className={cn(
+					'absolute inset-0 bg-[rgba(27,42,50,.5)] transition-opacity duration-200 ease-out',
+					shown ? 'opacity-100' : 'opacity-0',
+				)}
 				onClick={onClose}
 				aria-hidden
 			/>
-			<aside className="absolute inset-y-0 left-0 flex w-[290px] max-w-[85vw] flex-col bg-[linear-gradient(180deg,var(--color-brand-900),var(--color-brand-950))] px-3 pt-[calc(12px+env(safe-area-inset-top))] pb-[calc(12px+env(safe-area-inset-bottom))] text-white shadow-pop">
+			<aside
+				className={cn(
+					'absolute inset-y-0 left-0 flex w-[290px] max-w-[85vw] flex-col bg-[linear-gradient(180deg,var(--color-brand-900),var(--color-brand-950))] px-3 pt-[calc(12px+env(safe-area-inset-top))] pb-[calc(12px+env(safe-area-inset-bottom))] text-white shadow-pop transition-transform duration-200 ease-out',
+					shown ? 'translate-x-0' : '-translate-x-full',
+				)}
+			>
 				<div className="flex items-center gap-2.5 px-1.5 pb-3">
 					<LogoMark size={34} />
 					<span className="min-w-0 flex-1 leading-tight">

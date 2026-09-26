@@ -4,6 +4,7 @@ import { ArrowRight, Shield } from 'lucide-react';
 import { AuthShell, PanelHeadline, PanelTile } from '@/shared/layouts/AuthShell';
 import { Button, OtpInput, Steps } from '@/shared/ui';
 import { AuthError, useAuthStore } from '@/shared/lib/auth-store';
+import { useLiveApi } from '@/shared/lib/live-api';
 import { maskPhone } from '@/shared/lib/format';
 import { AuthHeading, FormError } from '../components/AuthHeading';
 import { useCountdown } from '../hooks/useCountdown';
@@ -13,10 +14,26 @@ export function SignupVerifyPage() {
 	const navigate = useNavigate();
 	const draft = useAuthStore((s) => s.signup);
 	const verify = useAuthStore((s) => s.verifySignupOtp);
+	const resendCode = useAuthStore((s) => s.resendSignupCode);
+	const live = useLiveApi();
 	const [code, setCode] = useState('');
 	const [error, setError] = useState<string>();
 	const [busy, setBusy] = useState(false);
 	const resend = useCountdown(42);
+
+	// Against the live API the code is emailed to the address on the account —
+	// there is no SMS or WhatsApp delivery — so the screen says where to look.
+	const sentTo = live ? draft.email : maskPhone(draft.phone);
+
+	const requestNewCode = async () => {
+		resend.reset();
+		setError(undefined);
+		try {
+			await resendCode();
+		} catch {
+			setError('We could not send a new code. Try again in a moment.');
+		}
+	};
 
 	useEffect(() => {
 		if (!draft.email) navigate({ to: '/signup', replace: true });
@@ -27,8 +44,11 @@ export function SignupVerifyPage() {
 		setBusy(true);
 		setError(undefined);
 		try {
-			await verify(code);
-			navigate({ to: '/signup/workspace' });
+			const org = await verify(code);
+			// Someone who signed up from an invitation already has a workspace;
+			// the setup steps are not theirs to do.
+			if (org) navigate({ to: '/$org/dashboard', params: { org: org.slug }, replace: true, search: { tour: 'choice' } });
+			else navigate({ to: '/signup/workspace' });
 		} catch (e) {
 			setError(e instanceof AuthError ? e.message : 'Something went wrong');
 			setCode('');
@@ -47,8 +67,9 @@ export function SignupVerifyPage() {
 			panel={
 				<>
 					<Steps steps={SIGNUP_STEPS.slice(0, 3)} current={2} onDark className="mb-6" />
-					<PanelHeadline title="Check your phone">
-						We sent a 6-digit code by SMS and WhatsApp to <b className="text-white">{maskPhone(draft.phone)}</b>. It expires in 10 minutes.
+					<PanelHeadline title={live ? 'Check your email' : 'Check your phone'}>
+						{live ? 'We sent a 6-digit code to ' : 'We sent a 6-digit code by SMS and WhatsApp to '}
+						<b className="text-white">{sentTo}</b>. It expires in 10 minutes.
 					</PanelHeadline>
 					<PanelTile
 						className="mt-7 max-w-[440px]"
@@ -61,8 +82,8 @@ export function SignupVerifyPage() {
 			}
 		>
 			<Steps steps={SIGNUP_STEPS} current={2} className="mb-8" />
-			<AuthHeading title="Verify your number">
-				Enter the code we sent to <b className="text-t1">{maskPhone(draft.phone)}</b>.
+			<AuthHeading title={live ? 'Verify your email' : 'Verify your number'}>
+				Enter the code we sent to <b className="text-t1">{sentTo}</b>.
 			</AuthHeading>
 			<FormError message={error} />
 			<form
@@ -77,16 +98,20 @@ export function SignupVerifyPage() {
 					{resend.remaining > 0 ? (
 						<span>Resend in {resend.label}</span>
 					) : (
-						<button type="button" className="font-semibold text-brand-600 hover:underline" onClick={() => resend.reset()}>
+						<button type="button" className="font-semibold text-brand-600 hover:underline" onClick={requestNewCode}>
 							Resend code
 						</button>
 					)}
-					<button type="button" className="text-brand-600 hover:underline" onClick={() => resend.reset()}>
-						Send via WhatsApp instead
-					</button>
-					<button type="button" className="text-brand-600 hover:underline" onClick={() => resend.reset()}>
-						Call me
-					</button>
+					{live ? null : (
+						<>
+							<button type="button" className="text-brand-600 hover:underline" onClick={() => resend.reset()}>
+								Send via WhatsApp instead
+							</button>
+							<button type="button" className="text-brand-600 hover:underline" onClick={() => resend.reset()}>
+								Call me
+							</button>
+						</>
+					)}
 				</div>
 				<div className="flex items-center justify-between pt-2">
 					<Button type="button" variant="ghost" onClick={() => navigate({ to: '/signup' })}>
@@ -97,9 +122,11 @@ export function SignupVerifyPage() {
 					</Button>
 				</div>
 			</form>
-			<p className="mt-6 text-center text-xs text-t3">
-				Demo code: <span className="kbd">482913</span>
-			</p>
+			{live ? null : (
+				<p className="mt-6 text-center text-xs text-t3">
+					Demo code: <span className="kbd">482913</span>
+				</p>
+			)}
 		</AuthShell>
 	);
 }

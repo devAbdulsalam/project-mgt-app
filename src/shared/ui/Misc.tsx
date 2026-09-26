@@ -24,9 +24,9 @@ export function Pagination({ page, pageCount, onChange, total, pageSize, classNa
 	const to = Math.min(total, page * pageSize);
 	const pages = Array.from({ length: pageCount }, (_, i) => i + 1).filter((p) => p === 1 || p === pageCount || Math.abs(p - page) <= 1);
 	return (
-		<nav className={cn('flex flex-wrap items-center justify-between gap-3 text-[13px] text-t2', className)} aria-label="Pagination">
-			<span>
-				Showing {from}–{to} of {total}
+		<nav className={cn('flex flex-wrap items-center justify-end gap-3 text-[13px] text-t2', className)} aria-label="Pagination">
+			<span className="tabular" aria-live="polite">
+				{from}–{to} of {total}
 			</span>
 			<div className="flex items-center gap-1.5">
 				<Button size="sm" iconOnly onClick={() => onChange(page - 1)} disabled={page <= 1} aria-label="Previous page">

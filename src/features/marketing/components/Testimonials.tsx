@@ -8,6 +8,7 @@ const stories = [
 	{
 		name: 'Adaeze O.',
 		role: 'Operations lead at an IT services firm in Lagos, juggling 40 client sites and a WhatsApp inbox that never stopped.',
+		src: 'https://randomuser.me/api/portraits/women/44.jpg',
 		tint: 'teal',
 		dark: true,
 		thread: [
@@ -22,6 +23,7 @@ const stories = [
 	{
 		name: 'David K.',
 		role: 'Field engineer covering Abuja, who wanted his day planned before he left the house.',
+		src: 'https://randomuser.me/api/portraits/men/44.jpg',
 		tint: 'tan',
 		thread: [
 			{
@@ -35,6 +37,7 @@ const stories = [
 	{
 		name: 'Maya R.',
 		role: 'Product manager running a small software team alongside customer support.',
+		src: 'https://randomuser.me/api/portraits/men/41.jpg',
 		tint: 'lavender',
 		thread: [
 			{
@@ -81,6 +84,7 @@ export function Testimonials() {
 								<Avatar
 									name={s.name}
 									tint={s.tint}
+									src={s.src}
 									size="lg"
 									className={cn(
 										'dark' in s && s.dark && 'ring-2 ring-white/20',

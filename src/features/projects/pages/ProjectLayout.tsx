@@ -4,7 +4,8 @@ import { AppShell, MobileHeader } from '@/shared/layouts/AppShell';
 import { Button } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
-import { memberById, useDb } from '@/mocks/db';
+import { memberById } from '@/mocks/db';
+import { useProject } from '../hooks/useProject';
 
 const tabs = [
 	['overview', 'Overview'],
@@ -20,8 +21,16 @@ const tabs = [
 export function ProjectLayout() {
 	const org = useAuthStore((s) => s.org)!;
 	const { projectKey } = useParams({ from: '/authed/$org/projects/$projectKey' });
-	const project = useDb((s) => s.projects.find((p) => p.key === projectKey));
+	const { project, loading } = useProject(org.slug, projectKey);
 	const params = useParams({ strict: false }) as { key?: string };
+
+	if (loading) {
+		return (
+			<AppShell meta={{ title: 'Project' }}>
+				<div className="mx-auto mt-6 max-w-md p-8 text-center text-[13px] text-t2" role="status">Loading project…</div>
+			</AppShell>
+		);
+	}
 
 	if (!project) {
 		return (
@@ -45,7 +54,7 @@ export function ProjectLayout() {
 					<Link to="/$org/projects" params={{ org: org.slug }} search={{}} className="-ms-1 flex items-center gap-1 text-[13px] text-on-dark-muted"><ChevronLeft size={16} /> Projects</Link>
 					<h1 className="mt-1 text-xl font-semibold">{project.name}</h1>
 					<nav className="-mx-4 mt-3 flex gap-2 overflow-x-auto px-4" aria-label="Project sections">
-						{visibleTabs.map(([k, l]) => (
+						{[...visibleTabs, ['settings', 'Settings'] as const].map(([k, l]) => (
 							<Link key={k} to={`/$org/projects/$projectKey/${k}` as '/$org/projects/$projectKey/overview'} params={{ org: org.slug, projectKey: project.key }} className="h-[34px] shrink-0 rounded-full bg-brand-800 px-3.5 text-[13px] leading-[34px] text-white data-[status=active]:bg-white data-[status=active]:font-semibold data-[status=active]:text-brand-900">
 								{l}
 							</Link>

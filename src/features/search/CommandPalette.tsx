@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams } from '@tanstack/react-router';
-import { Search, User, Users, Check, Flag, LayoutGrid, Inbox, Ticket as TicketIcon, Folder, Columns3, Bell, Settings, Plus, Bookmark, ArrowRight, Zap } from 'lucide-react';
+import { Building2, Search, User, Users, Check, Flag, LayoutGrid, Inbox, Ticket as TicketIcon, Folder, Columns3, Bell, Settings, Plus, Bookmark, ArrowRight, Zap } from 'lucide-react';
 import { Kbd, StatusPill, TypeDot } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { usePaletteStore } from '@/shared/lib/palette-store';
 import { toast } from '@/shared/lib/toast-store';
-import { memberById, useDb } from '@/mocks/db';
+import { useQuery } from '@tanstack/react-query';
+import { memberById } from '@/mocks/db';
+import { isLiveApi } from '@/shared/lib/live-api';
 import { transitions, allPriorities } from '@/mocks/seed';
 import { priorityLabel } from '@/shared/ui/meta';
-import { matchesQuery, savedViews } from '@/features/tickets/model/filters';
+import { savedViews } from '@/features/tickets/model/filters';
+import { useTicketActions } from '@/features/tickets/hooks/useTicketActions';
+import { useDb } from '@/mocks/db';
+import { ticketDetailQuery } from '@/features/tickets/api/queries';
+import { usePaletteData } from './hooks/useLiveSearch';
 import { parseQuery } from './query';
 
 interface Item {
@@ -48,12 +54,9 @@ function PaletteDialog() {
 	const org = useAuthStore((s) => s.org);
 	const user = useAuthStore((s) => s.user);
 	const params = useParams({ strict: false }) as { key?: string };
-	const tickets = useDb((s) => s.tickets);
-	const projects = useDb((s) => s.projects);
-	const members = useDb((s) => s.members);
-	const assign = useDb((s) => s.assign);
-	const transition = useDb((s) => s.transition);
-	const setPriority = useDb((s) => s.setPriority);
+	const live = isLiveApi();
+	const mockTickets = useDb((s) => s.tickets);
+	const actions = useTicketActions(org?.slug);
 	const [q, setQRaw] = useState('');
 	const [active, setActive] = useState(0);
 	const [assignMode, setAssignModeRaw] = useState(false);
@@ -73,7 +76,9 @@ function PaletteDialog() {
 	}, []);
 
 	const contextKey = params.key ?? focusedKey;
-	const ctx = contextKey ? tickets.find((t) => t.key === contextKey) : undefined;
+	// The ticket actions apply to: the open ticket, or the row focused in a list.
+	const liveContext = useQuery({ ...ticketDetailQuery(org?.slug ?? '', contextKey ?? ''), enabled: live && Boolean(org && contextKey) });
+	const ctx = contextKey ? (live ? liveContext.data : mockTickets.find((t) => t.key === contextKey)) : undefined;
 	const actor = { id: user?.id ?? 'anon', name: user?.name ?? 'Someone' };
 	const slug = org?.slug ?? '';
 	const close = () => setOpen(false);
@@ -85,6 +90,7 @@ function PaletteDialog() {
 	const commandMode = q.startsWith('>');
 	const query = commandMode ? q.slice(1).trim() : q.trim();
 	const parsed = parseQuery(query);
+	const { tickets, projects, clients, members } = usePaletteData(slug, parsed.text || query);
 	const fuzzy = (s: string) => !query || s.toLowerCase().includes(query.toLowerCase()) || query.toLowerCase().split(/\s+/).every((w) => s.toLowerCase().includes(w));
 
 	const items = useMemo<Item[]>(() => {
@@ -93,7 +99,7 @@ function PaletteDialog() {
 
 		if (assignMode && ctx) {
 			members
-				.filter((m) => m.status === 'Active' && fuzzy(m.name))
+				.filter((m) => m.active && fuzzy(m.name))
 				.forEach((m) =>
 					out.push({
 						id: `assign-${m.id}`,
@@ -102,7 +108,7 @@ function PaletteDialog() {
 						label: m.name,
 						hint: m.role,
 						run: go(() => {
-							assign(ctx.key, m.id, actor);
+							void actions.assign(ctx, m.id);
 							toast(`${ctx.key} assigned to ${m.name}`, { tone: 'success' });
 						}),
 					}),
@@ -114,12 +120,12 @@ function PaletteDialog() {
 			const sec = `Actions on ${ctx.key}`;
 			const mine = ctx.assigneeId === actor.id;
 			const acts: Item[] = [
-				{ id: 'assign-me', section: sec, icon: <User size={16} />, label: <b>{mine ? 'Unassign me' : 'Assign to me'}</b>, hint: actor.name, keys: ['A'], run: go(() => { assign(ctx.key, mine ? undefined : actor.id, actor); toast(mine ? `${ctx.key} unassigned` : `${ctx.key} assigned to you`, { tone: 'success' }); }) },
+				{ id: 'assign-me', section: sec, icon: <User size={16} />, label: <b>{mine ? 'Unassign me' : 'Assign to me'}</b>, hint: actor.name, keys: ['A'], run: go(() => { void actions.assign(ctx, mine ? undefined : actor.id); toast(mine ? `${ctx.key} unassigned` : `${ctx.key} assigned to you`, { tone: 'success' }); }) },
 				{ id: 'assign-to', section: sec, icon: <Users size={16} />, label: 'Assign to…', hint: 'choose a person', keys: ['⇧A'], run: () => { setAssignMode(true); setQ(''); } },
-				...transitions[ctx.status].map((s) => ({ id: `move-${s}`, section: sec, icon: <Check size={16} />, label: `Move to ${s}`, hint: `from ${ctx.status}`, run: go(() => { transition(ctx.key, s, actor); toast(`${ctx.key} moved to ${s}`, { tone: 'success' }); }) })),
-				...allPriorities.filter((p) => p !== ctx.priority).map((p) => ({ id: `prio-${p}`, section: sec, icon: <Flag size={16} />, label: `Set priority ${p} · ${priorityLabel[p]}`, run: go(() => { setPriority(ctx.key, p, actor); toast(`${ctx.key} set to ${p}`, { tone: 'success' }); }) })),
-				{ id: 'auto', section: sec, icon: <Zap size={16} />, label: <span>Run automation: <b>Auto-assign by asset</b></span>, run: go(() => { const eng = members.find((m) => m.role === 'Field engineer' && m.status === 'Active'); if (eng) { assign(ctx.key, eng.id, actor); toast(`Automation assigned ${ctx.key} to ${eng.name}`, { tone: 'success' }); } }) },
-			];
+				...transitions[ctx.status].map((s) => ({ id: `move-${s}`, section: sec, icon: <Check size={16} />, label: `Move to ${s}`, hint: `from ${ctx.status}`, run: go(() => { void actions.transition(ctx, s).then((ok) => ok && toast(`${ctx.key} moved to ${s}`, { tone: 'success' })); }) })),
+				...allPriorities.filter((p) => p !== ctx.priority).map((p) => ({ id: `prio-${p}`, section: sec, icon: <Flag size={16} />, label: `Set priority ${p} · ${priorityLabel[p]}`, run: go(() => { void actions.setPriority(ctx, p); toast(`${ctx.key} set to ${p}`, { tone: 'success' }); }) })),
+				{ id: 'auto', section: sec, icon: <Zap size={16} />, label: <span>Run automation: <b>Auto-assign by asset</b></span>, run: go(() => { const eng = members.find((m) => m.role === 'Field engineer' && m.active); if (eng) { void actions.assign(ctx, eng.id); toast(`Automation assigned ${ctx.key} to ${eng.name}`, { tone: 'success' }); } }) },
+			].filter((a) => !live || a.id !== 'auto'); // automations are a mock-only concept: the API has none to run
 			out.push(...acts.filter((a) => fuzzy(typeof a.label === 'string' ? a.label : a.id.replace(/-/g, ' ') + ' assign move set priority automation')));
 		}
 
@@ -129,7 +135,7 @@ function PaletteDialog() {
 				{ id: 'nav-inbox', section: 'Navigate', icon: <Inbox size={16} />, label: 'My Work', keys: ['G', 'W'], run: go(() => navigate({ to: '/$org/inbox', params: { org: slug }, search: {} })) },
 				{ id: 'nav-tickets', section: 'Navigate', icon: <TicketIcon size={16} />, label: 'Tickets', keys: ['G', 'T'], run: go(() => navigate({ to: '/$org/tickets', params: { org: slug }, search: {} })) },
 				{ id: 'nav-projects', section: 'Navigate', icon: <Folder size={16} />, label: 'Projects', keys: ['G', 'P'], run: go(() => navigate({ to: '/$org/projects', params: { org: slug }, search: {} })) },
-				...projects.filter((p) => !p.archived).flatMap((p) => [
+				...projects.flatMap((p) => [
 					{ id: `nav-board-${p.key}`, section: 'Navigate', icon: <Columns3 size={16} />, label: `${p.name} board`, hint: `Projects › ${p.name}`, keys: p.key === 'PB' ? ['G', 'B'] : undefined, run: go(() => navigate({ to: '/$org/projects/$projectKey/board', params: { org: slug, projectKey: p.key }, search: {} })) },
 					{ id: `nav-overview-${p.key}`, section: 'Navigate', icon: <Folder size={16} />, label: `${p.name} overview`, hint: `Projects › ${p.name}`, run: go(() => navigate({ to: '/$org/projects/$projectKey/overview', params: { org: slug, projectKey: p.key } })) },
 				]),
@@ -153,10 +159,7 @@ function PaletteDialog() {
 					run: go(() => navigate({ to: '/$org/tickets', params: { org: slug }, search: { ...parsed.search, q: parsed.text || undefined } })),
 				});
 			}
-			const text = parsed.text || query;
 			tickets
-				.filter((t) => matchesQuery(t, text))
-				.slice(0, 6)
 				.forEach((t) =>
 					out.push({
 						id: `t-${t.key}`,
@@ -173,10 +176,22 @@ function PaletteDialog() {
 						run: go(() => navigate({ to: '/$org/tickets/$key', params: { org: slug, key: t.key }, search: {} })),
 					}),
 				);
+			clients
+				.filter((c) => fuzzy(c.name))
+				.slice(0, 4)
+				.forEach((c) =>
+					out.push({
+						id: `client-${c.id}`,
+						section: 'Clients',
+						icon: <Building2 size={16} />,
+						label: c.name,
+						run: go(() => navigate({ to: '/$org/customers/$clientId', params: { org: slug, clientId: c.id }, search: {} })),
+					}),
+				);
 		}
 		return out;
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [q, ctx, tickets, projects, members, assignMode, org, slug, user?.id]);
+	}, [q, ctx, tickets, projects, clients, members, assignMode, org, slug, user?.id]);
 
 	useEffect(() => {
 		listRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });

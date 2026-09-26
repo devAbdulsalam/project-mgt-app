@@ -1,7 +1,7 @@
 import { cn } from '@/shared/lib/cn';
 import { initials } from '@/shared/lib/format';
 
-type Tint = 'teal' | 'tan' | 'green' | 'lavender' | 'grey' | 'dark';
+export type Tint = 'teal' | 'tan' | 'green' | 'lavender' | 'grey' | 'dark';
 type Size = 'xs' | 'sm' | 'md' | 'lg';
 
 const tints: Record<Tint, string> = {

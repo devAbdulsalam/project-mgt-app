@@ -11,6 +11,13 @@ import { allPriorities, transitions as workflow } from '@/mocks/seed';
 import { toast } from '@/shared/lib/toast-store';
 import type { Ticket, TicketLink } from '@/mocks/types';
 import { useActor } from '../hooks/useActor';
+import { useTicketActions } from '../hooks/useTicketActions';
+import { useAttachmentUploads } from '../hooks/useAttachmentUploads';
+import { attachToTicket } from '../api/uploads';
+import { isLiveApi } from '@/shared/lib/live-api';
+import { useQueryClient } from '@tanstack/react-query';
+import { ticketKeys } from '../api/queryKeys';
+import { useAuthStore } from '@/shared/lib/auth-store';
 import { SlaCountdown } from './TicketBits';
 
 // ---------- Description ----------
@@ -43,8 +50,7 @@ export function RichText({ text, className }: { text: string; className?: string
 }
 
 export function DescriptionBlock({ ticket }: { ticket: Ticket }) {
-	const actor = useActor();
-	const update = useDb((s) => s.updateTicket);
+	const actions = useTicketActions();
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState(ticket.description);
 	return (
@@ -78,7 +84,7 @@ export function DescriptionBlock({ ticket }: { ticket: Ticket }) {
 							size="sm"
 							variant="primary"
 							onClick={() => {
-								update(ticket.key, { description: draft }, actor, 'edited the description');
+								void actions.updateTicket(ticket, { description: draft });
 								setEditing(false);
 							}}
 						>
@@ -98,15 +104,13 @@ export function DescriptionBlock({ ticket }: { ticket: Ticket }) {
 // ---------- Labels ----------
 
 export function LabelsEditor({ ticket, compact }: { ticket: Ticket; compact?: boolean }) {
-	const actor = useActor();
-	const addLabel = useDb((s) => s.addLabel);
-	const removeLabel = useDb((s) => s.removeLabel);
+	const actions = useTicketActions();
 	const [adding, setAdding] = useState(false);
 	const [value, setValue] = useState('');
 	return (
 		<div className="flex flex-wrap items-center gap-1.5">
 			{ticket.labels.map((l) => (
-				<LabelChip key={l} onRemove={() => removeLabel(ticket.key, l, actor)}>
+				<LabelChip key={l} onRemove={() => void actions.setLabels(ticket, ticket.labels.filter((x) => x !== l))}>
 					{l}
 				</LabelChip>
 			))}
@@ -114,7 +118,7 @@ export function LabelsEditor({ ticket, compact }: { ticket: Ticket; compact?: bo
 				<form
 					onSubmit={(e) => {
 						e.preventDefault();
-						addLabel(ticket.key, value, actor);
+						void actions.setLabels(ticket, [...ticket.labels, value]);
 						setValue('');
 						setAdding(false);
 					}}
@@ -171,7 +175,7 @@ export function SubtaskList({ ticket }: { ticket: Ticket }) {
 							<span className="font-mono text-xs text-t2">{s.key}</span>
 							<span className={cn('min-w-0 flex-1 truncate', s.done && 'text-t3 line-through')}>{s.title}</span>
 							{!s.done && s.status && s.status !== 'Open' ? <StatusPill status={s.status} /> : null}
-							{m ? <Avatar name={m.name} tint={m.tint} size="sm" /> : <span className="grid size-6 place-items-center rounded-full bg-muted text-[10px] text-t3">?</span>}
+							{m ? <Avatar name={m.name} tint={m.tint} src={m.avatarUrl} size="sm" /> : <span className="grid size-6 place-items-center rounded-full bg-muted text-[10px] text-t3">?</span>}
 						</li>
 					);
 				})}
@@ -319,15 +323,14 @@ export function CommentList({ ticket, now, filter }: { ticket: Ticket; now: numb
 }
 
 export function CommentComposer({ ticket, defaultMode }: { ticket: Ticket; defaultMode?: 'client' | 'internal' }) {
-	const actor = useActor();
-	const addComment = useDb((s) => s.addComment);
+	const actions = useTicketActions();
 	const client = clientById(ticket.clientId);
 	const [mode, setMode] = useState<'client' | 'internal'>(defaultMode ?? (client ? 'client' : 'internal'));
 	const [body, setBody] = useState('');
 	const channel = ticket.channel === 'internal' ? undefined : ticket.channel;
 	const submit = () => {
 		if (!body.trim()) return;
-		addComment(ticket.key, { body, internal: mode === 'internal', channel: mode === 'client' ? channel : undefined }, actor);
+		void actions.addComment(ticket, body, mode === 'internal');
 		setBody('');
 		toast(mode === 'internal' ? 'Internal note added' : `Reply sent${channel ? ` via ${channel === 'whatsapp' ? 'WhatsApp' : channel}` : ''}`, { tone: 'success' });
 	};
@@ -389,26 +392,155 @@ export function ActivityList({ ticket, now }: { ticket: Ticket; now: number }) {
 	);
 }
 
+/**
+ * Adds files to a ticket that already exists.
+ *
+ * Two steps, not one: the bytes are uploaded first and land unattached, then the
+ * ids are claimed by the ticket. That is what lets an upload survive a failed
+ * attach, and it is the same path the create dialog uses — there the claim
+ * happens as part of creating the ticket.
+ */
+function AttachmentUploader({ ticket }: { ticket: Ticket }) {
+	const org = useAuthStore((s) => s.org?.slug) ?? '';
+	const uploads = useAttachmentUploads('ticket_attachment');
+	const queryClient = useQueryClient();
+	const [attaching, setAttaching] = useState(false);
+
+	// Only the files that actually stored can be claimed.
+	const ready = uploads.attachmentIds;
+
+	const attach = async () => {
+		if (!ready.length) return;
+		setAttaching(true);
+		try {
+			await attachToTicket(org, ticket.key, ready);
+			uploads.reset();
+			await queryClient.invalidateQueries({ queryKey: ticketKeys.detail(ticket.key) });
+			toast(`${ready.length} file${ready.length === 1 ? '' : 's'} attached`, { tone: 'success' });
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Could not attach those files.', { tone: 'danger' });
+		} finally {
+			setAttaching(false);
+		}
+	};
+
+	return (
+		<div className="mt-3 rounded-[10px] border border-dashed border-border p-3">
+			<label className="flex cursor-pointer items-center gap-2 text-[13px] text-t2">
+				<Paperclip size={14} aria-hidden />
+				<span>Add files</span>
+				<input
+					type="file"
+					multiple
+					className="sr-only"
+					accept={uploads.policy.extensions.map((e) => `.${e}`).join(',')}
+					onChange={(e) => {
+						if (e.target.files) uploads.add(e.target.files);
+						// Reset, so picking the same file twice still fires a change.
+						e.target.value = '';
+					}}
+				/>
+			</label>
+
+			{uploads.items.length > 0 && (
+				<ul className="mt-2 space-y-1.5">
+					{uploads.items.map((item) => (
+						<li key={item.localId} className="flex items-center gap-2 text-[13px]">
+							<span className="min-w-0 flex-1 truncate">{item.name}</span>
+							<span className="text-xs text-t3">
+								{item.status === 'uploading'
+									? `${Math.round(item.progress * 100)}%`
+									: item.status === 'error'
+										? (item.error ?? 'Failed')
+										: item.size}
+							</span>
+							<button
+								type="button"
+								onClick={() => uploads.remove(item.localId)}
+								aria-label={`Remove ${item.name}`}
+								className="text-t3 hover:text-t1"
+							>
+								<X size={13} />
+							</button>
+						</li>
+					))}
+				</ul>
+			)}
+
+			{ready.length > 0 && (
+				<Button
+					className="mt-2"
+					onClick={attach}
+					loading={attaching || uploads.uploading}
+					disabled={uploads.uploading}
+				>
+					{uploads.uploading ? 'Uploading…' : `Attach ${ready.length} file${ready.length === 1 ? '' : 's'}`}
+				</Button>
+			)}
+		</div>
+	);
+}
+
 export function AttachmentList({ ticket }: { ticket: Ticket }) {
-	if (ticket.attachments.length === 0) return <p className="py-6 text-center text-[13px] text-t3">No attachments.</p>;
+	// Uploading is only wired to the API; against the mock store the list stays
+	// read-only rather than pretending a file was stored.
+	const canUpload = isLiveApi();
+
+	if (ticket.attachments.length === 0) {
+		return (
+			<>
+				<p className="py-6 text-center text-[13px] text-t3">No attachments.</p>
+				{canUpload && <AttachmentUploader ticket={ticket} />}
+			</>
+		);
+	}
+
 	const icon = { image: ImageIcon, log: FileText, pdf: FileText, other: File };
 	return (
-		<ul className="grid gap-2 sm:grid-cols-2">
+		<>
+			<ul className="grid gap-2 sm:grid-cols-2">
 			{ticket.attachments.map((f) => {
 				const Icon = icon[f.kind];
-				return (
-					<li key={f.id} className="flex items-center gap-2.5 rounded-sm border border-border px-3 py-2 text-[13px]">
+				// A file the scanner flagged is listed but not offered: the link is
+				// what makes it dangerous, and the row is what makes it accountable.
+				const infected = f.scanStatus === 'infected';
+				const body = (
+					<>
 						<span className="grid size-8 place-items-center rounded-sm bg-muted text-t2">
 							<Icon size={15} />
 						</span>
 						<span className="min-w-0 flex-1">
 							<span className="block truncate">{f.name}</span>
-							<span className="text-xs text-t3">{f.size}</span>
+							<span className="text-xs text-t3">{infected ? 'Blocked by the virus scanner' : f.size}</span>
 						</span>
+					</>
+				);
+
+				const shell = 'flex items-center gap-2.5 rounded-sm border px-3 py-2 text-[13px]';
+
+				return (
+					<li key={f.id}>
+						{f.url && !infected ? (
+							// Opened in a new tab rather than fetched: the link is signed and
+							// short-lived, and the API decides inline vs download.
+							<a
+								href={f.url}
+								target="_blank"
+								rel="noreferrer"
+								className={cn(shell, 'border-border hover:border-border-strong hover:bg-muted/50')}
+								title={`Open ${f.name}`}
+							>
+								{body}
+							</a>
+						) : (
+							<span className={cn(shell, infected ? 'border-danger-fg/30 bg-danger-bg' : 'border-border')}>{body}</span>
+						)}
 					</li>
 				);
 			})}
-		</ul>
+			</ul>
+			{canUpload && <AttachmentUploader ticket={ticket} />}
+		</>
 	);
 }
 
@@ -425,23 +557,22 @@ function Prop({ label, children }: { label: string; children: ReactNode }) {
 
 export function AssigneeMenu({ ticket, children }: { ticket: Ticket; children: (props: { toggle: () => void; buttonProps: Record<string, unknown> }) => ReactNode }) {
 	const actor = useActor();
-	const assign = useDb((s) => s.assign);
+	const actions = useTicketActions();
 	return (
 		<Menu
 			width="w-60"
 			trigger={({ toggle, buttonProps }) => children({ toggle, buttonProps })}
 			items={[
-				{ key: 'me', label: 'Assign to me', selected: ticket.assigneeId === actor.id, onSelect: () => assign(ticket.key, actor.id, actor) },
-				{ key: 'none', label: 'Unassigned', selected: !ticket.assigneeId, onSelect: () => assign(ticket.key, undefined, actor) },
-				...team.filter((m) => m.id !== actor.id && m.id !== 'u_amr').map((m) => ({ key: m.id, label: m.name, hint: m.role, selected: ticket.assigneeId === m.id, onSelect: () => assign(ticket.key, m.id, actor) })),
+				{ key: 'me', label: 'Assign to me', selected: ticket.assigneeId === actor.id, onSelect: () => void actions.assign(ticket, actor.id) },
+				{ key: 'none', label: 'Unassigned', selected: !ticket.assigneeId, onSelect: () => void actions.assign(ticket, undefined) },
+				...team.filter((m) => m.id !== actor.id && m.id !== 'u_amr').map((m) => ({ key: m.id, label: m.name, hint: m.role, selected: ticket.assigneeId === m.id, onSelect: () => void actions.assign(ticket, m.id) })),
 			]}
 		/>
 	);
 }
 
 export function PriorityMenu({ ticket }: { ticket: Ticket }) {
-	const actor = useActor();
-	const setPriority = useDb((s) => s.setPriority);
+	const actions = useTicketActions();
 	return (
 		<Menu
 			width="w-44"
@@ -450,15 +581,13 @@ export function PriorityMenu({ ticket }: { ticket: Ticket }) {
 					<PriorityPill priority={ticket.priority} long /> <ChevronDown size={12} className="text-t3" />
 				</button>
 			)}
-			items={allPriorities.map((p) => ({ key: p, label: `${p} · ${priorityLabel[p]}`, selected: ticket.priority === p, onSelect: () => setPriority(ticket.key, p, actor) }))}
+			items={allPriorities.map((p) => ({ key: p, label: `${p} · ${priorityLabel[p]}`, selected: ticket.priority === p, onSelect: () => void actions.setPriority(ticket, p) }))}
 		/>
 	);
 }
 
 export function PropertyList({ ticket, now, orgSlug, limit }: { ticket: Ticket; now: number; orgSlug: string; limit?: number }) {
-	const actor = useActor();
-	const update = useDb((s) => s.updateTicket);
-	const logTime = useDb((s) => s.logTime);
+	const actions = useTicketActions();
 	const [showAll, setShowAll] = useState(!limit);
 	const assignee = memberById(ticket.assigneeId);
 	const client = clientById(ticket.clientId);
@@ -472,7 +601,7 @@ export function PropertyList({ ticket, now, orgSlug, limit }: { ticket: Ticket; 
 					<button type="button" onClick={toggle} className="inline-flex items-center gap-2 rounded-sm hover:underline" {...buttonProps}>
 						{assignee ? (
 							<>
-								<Avatar name={assignee.name} tint={assignee.tint} size="sm" /> {assignee.name}
+								<Avatar name={assignee.name} tint={assignee.tint} src={assignee.avatarUrl} size="sm" /> {assignee.name}
 							</>
 						) : (
 							<span className="text-t2">Unassigned</span>
@@ -529,7 +658,7 @@ export function PropertyList({ ticket, now, orgSlug, limit }: { ticket: Ticket; 
 			<input
 				type="date"
 				value={toDateInputValue(ticket.dueAt)}
-				onChange={(e) => update(ticket.key, { dueAt: fromDateInputValue(e.target.value) }, actor, e.target.value ? `set due date to ${e.target.value}` : 'cleared the due date')}
+				onChange={(e) => void actions.patchFields(ticket, { due_at: e.target.value ? new Date(fromDateInputValue(e.target.value)!).toISOString() : null })}
 				className="h-7 rounded-sm border border-transparent bg-transparent px-1 text-[13px] hover:border-border-strong"
 				aria-label="Due date"
 			/>
@@ -545,7 +674,7 @@ export function PropertyList({ ticket, now, orgSlug, limit }: { ticket: Ticket; 
 					type="number"
 					min={0}
 					value={ticket.storyPoints ?? ''}
-					onChange={(e) => update(ticket.key, { storyPoints: e.target.value ? Number(e.target.value) : undefined }, actor, `set story points to ${e.target.value || 'none'}`)}
+					onChange={(e) => void actions.patchFields(ticket, { story_points: e.target.value ? Number(e.target.value) : null })}
 					className="h-7 w-16 rounded-sm border border-transparent bg-transparent px-1 text-[13px] hover:border-border-strong"
 					aria-label="Story points"
 				/>
@@ -562,7 +691,7 @@ export function PropertyList({ ticket, now, orgSlug, limit }: { ticket: Ticket; 
 						Log
 					</button>
 				)}
-				items={[15, 30, 60, 120].map((m) => ({ key: String(m), label: `+ ${formatMinutes(m)}`, onSelect: () => logTime(ticket.key, m, actor) }))}
+				items={[15, 30, 60, 120].map((m) => ({ key: String(m), label: `+ ${formatMinutes(m)}`, onSelect: () => void actions.logTime(ticket, m) }))}
 			/>
 		</Prop>,
 		<Prop key="labels" label="Labels">
@@ -608,8 +737,7 @@ export function PropertyList({ ticket, now, orgSlug, limit }: { ticket: Ticket; 
 }
 
 export function StatusMenu({ ticket, dark }: { ticket: Ticket; dark?: boolean }) {
-	const actor = useActor();
-	const transition = useDb((s) => s.transition);
+	const actions = useTicketActions();
 	return (
 		<Menu
 			width="w-52"
@@ -624,8 +752,9 @@ export function StatusMenu({ ticket, dark }: { ticket: Ticket; dark?: boolean })
 				label: s,
 				icon: s === 'Resolved' || s === 'Closed' ? <Check size={14} /> : undefined,
 				onSelect: () => {
-					transition(ticket.key, s, actor);
-					toast(`${ticket.key} moved to ${s}`, { tone: 'success' });
+					void actions.transition(ticket, s).then((ok) => {
+						if (ok) toast(`${ticket.key} moved to ${s}`, { tone: 'success' });
+					});
 				},
 			}))}
 		/>

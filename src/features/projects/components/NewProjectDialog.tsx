@@ -6,13 +6,26 @@ import { cn } from '@/shared/lib/cn';
 import { useDb } from '@/mocks/db';
 import { toast } from '@/shared/lib/toast-store';
 import { useActor } from '@/features/tickets/hooks/useActor';
+import { useAuthStore } from '@/shared/lib/auth-store';
+import { useMembers } from '@/api/resources';
+import { useProjectList } from '../hooks/useProjectList';
+import { useProjectActions } from '../hooks/useProjectActions';
 
 export function NewProjectDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (key: string) => void }) {
 	const actor = useActor();
-	const projects = useDb((s) => s.projects);
-	const allMembers = useDb((s) => s.members);
-	const members = allMembers.filter((m) => m.status === 'Active' && m.id !== 'u_amr');
-	const createProject = useDb((s) => s.createProject);
+	const org = useAuthStore((s) => s.org)!;
+	const { projects } = useProjectList(org.slug);
+	const actions = useProjectActions(org.slug);
+
+	// Workspace members, from whichever source is active. The API refuses anyone
+	// who is not one, so the picker and the server agree.
+	const liveMembers = useMembers(org.slug);
+	const mockMembers = useDb((s) => s.members);
+	const members = (
+		liveMembers.data
+			? liveMembers.data.map((m) => ({ id: m.id, name: m.name, role: m.role, status: 'Active' as const }))
+			: mockMembers.filter((m) => m.status === 'Active' && m.id !== 'u_amr')
+	);
 
 	const schema = z.object({
 		name: z.string().trim().min(2, 'Give the project a name'),
@@ -30,11 +43,22 @@ export function NewProjectDialog({ open, onClose, onCreated }: { open: boolean; 
 	const form = useForm<V>({ resolver: zodResolver(schema), defaultValues: { name: '', key: '', kind: 'software', leadId: actor.id, description: '' } });
 	const kind = useWatch({ control: form.control, name: 'kind' });
 
-	const submit = form.handleSubmit((v) => {
-		const p = createProject({ ...v, description: v.description ?? '' }, actor);
-		toast(`Project ${p.name} created`, { tone: 'success', description: `Key ${p.key}` });
+	const submit = form.handleSubmit(async (v) => {
+		const created = await actions.create({
+			key: v.key,
+			name: v.name,
+			kind: v.kind,
+			leadId: v.leadId,
+			description: v.description ?? '',
+			// The lead is always a member; the server adds the creator too.
+			memberIds: [v.leadId],
+		});
+
+		if (!created) return form.setError('key', { message: 'Could not create that project' });
+
+		toast(`Project ${v.name} created`, { tone: 'success', description: `Key ${v.key}` });
 		form.reset();
-		onCreated(p.key);
+		onCreated(v.key);
 		onClose();
 	});
 

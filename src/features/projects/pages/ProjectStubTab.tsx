@@ -1,5 +1,5 @@
 import { Link, useParams } from '@tanstack/react-router';
-import { CalendarDays, Construction, ListTodo, Map, Timer, Users, Settings } from 'lucide-react';
+import { Construction, ListTodo, Map, Timer } from 'lucide-react';
 import { Button, Card, EmptyState } from '@/shared/ui';
 import { useAuthStore } from '@/shared/lib/auth-store';
 
@@ -7,9 +7,6 @@ const meta: Record<string, { title: string; blurb: string; icon: typeof Construc
 	backlog: { title: 'Backlog & sprint planning', blurb: 'Rank issues, drag them into sprints and watch capacity per engineer.', icon: ListTodo },
 	sprints: { title: 'Sprints', blurb: 'Burndown with forecast, velocity over the last six sprints and the sprint issue table.', icon: Timer },
 	roadmap: { title: 'Roadmap', blurb: 'Gantt of epics with milestones, dependency arrows and drag-to-reschedule.', icon: Map },
-	calendar: { title: 'Calendar', blurb: 'Due dates and sprints on a month or week grid.', icon: CalendarDays },
-	workload: { title: 'Workload', blurb: 'Capacity per assignee with over-capacity warnings.', icon: Users },
-	settings: { title: 'Project settings', blurb: 'Workflow editor, custom fields, boards, members, automation and integrations.', icon: Settings },
 };
 
 export function ProjectStubTab({ section }: { section: keyof typeof meta }) {
@@ -19,7 +16,7 @@ export function ProjectStubTab({ section }: { section: keyof typeof meta }) {
 	return (
 		<Card>
 			<EmptyState icon={<m.icon size={20} />} title={`${m.title} is next on the roadmap`} action={<Link to="/$org/projects/$projectKey/board" params={{ org: org.slug, projectKey }} search={{}}><Button variant="primary">Open the board</Button></Link>}>
-				{m.blurb} The overview, list and board are live with mock data.
+				{m.blurb} The overview, list, board, calendar, workload and settings are live with mock data.
 			</EmptyState>
 		</Card>
 	);

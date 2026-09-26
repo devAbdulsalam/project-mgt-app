@@ -248,7 +248,7 @@ export interface ModuleOption {
 	id: string;
 	name: string;
 	description: string;
-	icon: 'ticket' | 'calendar' | 'cpu' | 'board' | 'building' | 'book';
+	icon: 'ticket' | 'calendar' | 'cpu' | 'board' | 'building' | 'book' | 'graduation';
 	defaultOn: boolean;
 }
 
@@ -259,6 +259,7 @@ export const modules: ModuleOption[] = [
 	{ id: 'projects', name: 'Projects & sprints', description: 'For software delivery teams', icon: 'board', defaultOn: false },
 	{ id: 'contracts', name: 'Client contracts', description: 'Retainers, hours banks, naira invoicing', icon: 'building', defaultOn: true },
 	{ id: 'kb', name: 'Knowledge base', description: 'Public and internal articles', icon: 'book', defaultOn: false },
+	{ id: 'programs', name: 'Programmes & training', description: 'Trainings, events, attendees and what they cost', icon: 'graduation', defaultOn: false },
 ];
 
 export interface Plan {

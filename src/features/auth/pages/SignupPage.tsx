@@ -6,10 +6,10 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { ArrowRight, CheckCircle2 } from 'lucide-react';
 import { AuthShell, PanelHeadline, PanelTile } from '@/shared/layouts/AuthShell';
 import { Avatar, Button, Checkbox, Field, Input, OrDivider, SsoButton, Steps } from '@/shared/ui';
-import { useAuthStore } from '@/shared/lib/auth-store';
+import { AuthError, useAuthStore } from '@/shared/lib/auth-store';
 import { slugify } from '@/shared/lib/format';
 import { PasswordInput, PasswordStrengthMeter } from '../components/PasswordInput';
-import { passwordStrength } from '../lib/password';
+import { passwordField } from '../lib/password-policy';
 import { SIGNUP_STEPS } from '../lib/steps';
 import { AuthHeading, FormError } from '../components/AuthHeading';
 
@@ -21,8 +21,10 @@ const schema = z.object({
 		.string()
 		.trim()
 		.regex(/^\d{3} ?\d{3} ?\d{4}$/, 'Enter a 10-digit mobile number, e.g. 803 555 0142'),
-	password: z.string().min(8, 'Use at least 8 characters').refine((p) => passwordStrength(p).score >= 2, 'Add a mix of letters and numbers'),
-	agree: z.literal(true, { message: 'You need to accept the terms to continue' }),
+	password: passwordField,
+	agree: z.literal(true, {
+		message: 'You need to accept the terms to continue',
+	}),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -30,7 +32,9 @@ export function SignupPage() {
 	const navigate = useNavigate();
 	const draft = useAuthStore((s) => s.signup);
 	const updateSignup = useAuthStore((s) => s.updateSignup);
+	const registerAccount = useAuthStore((s) => s.registerAccount);
 	const [formError, setFormError] = useState<string>();
+	const [busy, setBusy] = useState(false);
 
 	const form = useForm<FormValues>({
 		resolver: zodResolver(schema),
@@ -47,8 +51,14 @@ export function SignupPage() {
 	const password = useWatch({ control: form.control, name: 'password' });
 	const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-	const onSubmit = form.handleSubmit((v) => {
+	const onSubmit = form.handleSubmit(async (v) => {
+		if (busy) return;
+		setBusy(true);
+		setFormError(undefined);
+
 		const domain = v.email.split('@')[1]?.split('.')[0] ?? '';
+		// Written before the call so the next screen — and a reload — can read the
+		// address, and so a failure leaves the form filled in rather than blank.
 		updateSignup({
 			firstName: v.firstName,
 			lastName: v.lastName,
@@ -58,7 +68,19 @@ export function SignupPage() {
 			companyName: draft.companyName || (domain ? domain[0]!.toUpperCase() + domain.slice(1) : ''),
 			slug: draft.slug || slugify(domain),
 		});
-		navigate({ to: '/signup/verify' });
+
+		try {
+			await registerAccount(v.password);
+			navigate({ to: '/signup/verify' });
+		} catch (e) {
+			if (e instanceof AuthError && e.field && e.field !== 'code') {
+				form.setError(e.field, { message: e.message });
+			} else {
+				setFormError(e instanceof Error ? e.message : 'Something went wrong');
+			}
+		} finally {
+			setBusy(false);
+		}
 	});
 
 	return (
@@ -77,7 +99,7 @@ export function SignupPage() {
 					<blockquote className="mt-5 max-w-[520px] rounded-[14px] border border-white/10 bg-white/[.06] p-5">
 						<p className="text-sm leading-relaxed">“We moved 6 engineers and 40 client contracts over in a weekend. First-response time dropped from 3 hours to 25 minutes.”</p>
 						<footer className="mt-3 flex items-center gap-2.5 text-[11px]">
-							<Avatar name="Tunde Bakare" tint="tan" />
+							<Avatar name="Tunde Bakare" tint="tan" src="https://randomuser.me/api/portraits/men/44.jpg" />
 							<span>
 								<b className="block">Tunde Bakare</b>
 								<span className="text-on-dark-muted">Head of Support, Lekki Fintech Ltd</span>
@@ -173,7 +195,7 @@ export function SignupPage() {
 						</p>
 					) : null}
 				</div>
-				<Button type="submit" variant="primary" size="lg" block className="mt-1 h-11">
+				<Button type="submit" variant="primary" size="lg" block loading={busy} className="mt-1 h-11">
 					Create account <ArrowRight size={15} aria-hidden />
 				</Button>
 			</form>

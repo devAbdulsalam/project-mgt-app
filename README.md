@@ -12,7 +12,7 @@ This repository contains the **front end only**. It currently runs against an in
 - **Tickets**: status tabs with counts, search and filter chips, sort, saved views, table and card layouts, pagination, bulk assign / status / priority, CSV export.
 - **Ticket detail**: side panel on desktop and full page on mobile. Inline editing, workflow-driven status transitions, assign, log time, watch, labels, sub-tasks, linked issues, client replies and internal notes with @mentions, activity feed, attachments.
 - **Create ticket**: templates, type-driven fields, duplicate detection, suggested assignee, SLA policy, attachments, draft autosave.
-- **Projects**: directory (cards / table, star, archive), overview (KPIs, epics, burndown, status donut, team), scoped list, Kanban board with drag-and-drop and WIP limits.
+- **Projects**: directory (cards / table, star, archive), overview (KPIs, epics, burndown, status donut, team), scoped list, Kanban board with drag-and-drop and WIP limits, calendar (month / week, sprint band, drag to reschedule, unscheduled rail), workload (capacity per member from project settings, per-day load, drag or menu to reassign, rebalance suggestions) and project settings (general and capacity, visual workflow editor with validators and post-functions, custom fields, boards and columns, ticket types, members and roles, automation rules, notification scheme, integrations, archive / delete).
 - **Notifications**: filters, mark read, SLA escalate / snooze, delivery preferences, browser push opt-in, bell popover.
 - **Team**: member directory, member panel (role, teams, capacity), invite dialog, deactivate / reactivate, roles matrix.
 - **Command palette** (`⌘K` / `Ctrl+K`): navigation, ticket search, contextual actions, and query syntax such as `status:open assignee:me priority>=high`.
@@ -171,3 +171,54 @@ The `@` import alias points at `src/`.
 1. Create a branch for your change.
 2. Run `npm run lint` and `npm run build` before opening a pull request. The build step also runs the TypeScript checker.
 3. Keep new pages inside `src/features/<feature>/` and shared primitives inside `src/shared/`.
+
+## Live API integration
+
+`.env.local` sets `VITE_USE_LIVE_API=1`; delete it to go back to the in-browser
+mock store. `vite.config.ts` proxies `/api` to the backend on port 4000 so the
+API is same-origin — which is what lets the httpOnly refresh cookie work, since
+`ApiClient` calls `fetch` without `credentials: 'include'`.
+
+Every screen reads through a hook that returns the same shape from either
+source, so switching a screen over changes which hook it calls rather than
+rewriting it.
+
+| Screen | Reads | Writes |
+|---|---|---|
+| Sign in / session | live | live |
+| Tickets list + counts | live | — |
+| Ticket detail | live | live |
+| Ticket attachments | live | live (upload on create *and* on an existing ticket) |
+| Notifications | live | live |
+| Projects (list, create, archive, star, members) | live | live |
+| Project board | live | live (drag to transition) |
+| Dashboard | live | — |
+| Assets | live | live |
+| Clients (list + detail) | live | live |
+| Visits | live | live |
+| Knowledge base | live | live |
+| Programmes (list + detail, activities, participants) | live | live |
+| Programme budget | live | — |
+| Expenses (list, log, submit, approve/reject/pay) | live | live |
+
+Every screen is switched over **whole**, reads and writes together. A page that
+lists live rows but saves to the mock store looks like it works and silently
+loses the edit, which is worse than one that is honestly still on mocks.
+
+**Starring is per viewer.** `starred` on a project is answered for the user
+making the request, so one person adding a favourite does not add it for
+everyone. That is why `project_stars` is its own table rather than a column.
+
+Some fields have no server-side equivalent and are deliberately left empty
+rather than invented — client notes, visit checkpoints and parts, asset history,
+and the visit map coordinates (which were always a decorative layout, not real
+positions).
+
+The dashboard aggregates client-side from one page of tickets, so on a large
+workspace its numbers are computed over a subset. `GET /orgs/{org}/dashboard`
+does that aggregation in SQL across every row and is the right source once those
+panels are reshaped to consume it.
+
+Writes carry the `version` they read. A **409** means someone else changed the
+ticket first; the UI says so and asks you to reload rather than silently
+overwriting their edit.

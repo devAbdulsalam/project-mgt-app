@@ -1,18 +1,19 @@
 import { Link } from '@tanstack/react-router';
 import { AlertTriangle, Building2 } from 'lucide-react';
 import { Avatar, Card, CardHeader, Pill, ProgressBar, TypeDot, type PillTone } from '@/shared/ui';
-import { clientById, useDb, slaRunning } from '@/mocks/db';
-import { totalClients, trafficAlert } from '@/mocks/data';
+import { clientById, memberById, useDb, slaRunning } from '@/mocks/db';
+import { trafficAlert } from '@/mocks/data';
 import { statusCategory } from '@/mocks/seed';
 import type { TeamMember, Ticket } from '@/mocks/types';
 import { countdown } from '@/shared/lib/time';
+import { isLiveApi } from '@/shared/lib/live-api';
 import type { DashboardData } from '../model';
 
 function healthColor(pct: number) {
 	return pct >= 90 ? '#22a05b' : pct >= 80 ? '#e0a100' : '#d93f3f';
 }
 
-export function TopClientsCard({ clients, orgSlug }: { clients: DashboardData['clients']; orgSlug: string }) {
+export function TopClientsCard({ clients, orgSlug, total }: { clients: DashboardData['clients']; orgSlug: string; total: number }) {
 	return (
 		<Card className="p-5">
 			<CardHeader
@@ -20,11 +21,12 @@ export function TopClientsCard({ clients, orgSlug }: { clients: DashboardData['c
 				sub="By open ticket volume · contract health"
 				action={
 					<Link to="/$org/customers" params={{ org: orgSlug }} className="text-xs whitespace-nowrap text-brand-600 hover:underline">
-						View all {totalClients}
+						View all {total}
 					</Link>
 				}
 			/>
 			<ul className="mt-1.5">
+				{clients.length === 0 ? <li className="py-3 text-[13px] text-t3">No clients yet.</li> : null}
 				{clients.map((c) => (
 					<li key={c.id} className="flex items-center gap-3 py-2.5 text-[13px]">
 						<span className="grid size-6 shrink-0 place-items-center rounded-full bg-brand-100 text-brand-900" aria-hidden>
@@ -37,8 +39,12 @@ export function TopClientsCard({ clients, orgSlug }: { clients: DashboardData['c
 							</div>
 						</div>
 						<span className="tabular w-[60px] shrink-0 text-right text-[11px] text-t2">{c.openTickets} tickets</span>
-						<ProgressBar value={c.healthPct} color={healthColor(c.healthPct)} className="hidden w-[90px] shrink-0 sm:block" label={`${c.name} contract health`} />
-						<b className="tabular w-8 shrink-0 text-right text-[11px]">{c.healthPct}%</b>
+						{c.healthPct === null ? (
+							<span className="hidden w-[90px] shrink-0 text-right text-[11px] text-t3 sm:block">no SLA data</span>
+						) : (
+							<ProgressBar value={c.healthPct} color={healthColor(c.healthPct)} className="hidden w-[90px] shrink-0 sm:block" label={`${c.name} contract health`} />
+						)}
+						<b className="tabular w-8 shrink-0 text-right text-[11px]">{c.healthPct === null ? '—' : `${c.healthPct}%`}</b>
 					</li>
 				))}
 			</ul>
@@ -48,7 +54,49 @@ export function TopClientsCard({ clients, orgSlug }: { clients: DashboardData['c
 
 const presenceTone: Record<TeamMember['presence'], PillTone> = { 'On site': 'done', 'En route': 'teal', Active: 'new', Away: 'closed', Break: 'closed' };
 
-export function EngineerStatusCard({ orgSlug }: { orgSlug: string }) {
+/** Live: the API knows who has work, not who is on site, so this shows load rather than presence. */
+function WorkloadCard({ orgSlug, rows }: { orgSlug: string; rows: NonNullable<DashboardData['workload']> }) {
+	const shown = rows.slice(0, 5);
+	return (
+		<Card className="p-5">
+			<CardHeader
+				title="Team workload"
+				action={
+					<Link to="/$org/users" params={{ org: orgSlug }} search={{}} className="text-xs text-brand-600 hover:underline">
+						Team
+					</Link>
+				}
+			/>
+			<ul className="mt-1">
+				{shown.map((w) => {
+					const member = memberById(w.id);
+					return (
+						<li key={w.id} className="flex items-center gap-2.5 py-2 text-[13px]">
+							<Avatar name={w.name} tint={member?.tint ?? 'grey'} size="sm" />
+							<div className="min-w-0 flex-1">
+								<Link to="/$org/users" params={{ org: orgSlug }} search={{ member: w.id }} className="block truncate font-semibold hover:underline">
+									{w.name}
+								</Link>
+								<div className="truncate text-[11px] text-t2">
+									{w.openCount} open{w.points ? ` · ${w.points} pts` : ''}
+								</div>
+							</div>
+							<Pill tone={w.openCount === 0 ? 'closed' : w.openCount > 8 ? 'blocked' : 'progress'}>{w.openCount === 0 ? 'Available' : w.openCount > 8 ? 'Heavy' : 'Working'}</Pill>
+						</li>
+					);
+				})}
+				{shown.length === 0 ? <li className="py-3 text-[13px] text-t3">No active members yet.</li> : null}
+			</ul>
+		</Card>
+	);
+}
+
+export function EngineerStatusCard({ orgSlug, workload }: { orgSlug: string; workload?: DashboardData['workload'] }) {
+	if (isLiveApi() && workload) return <WorkloadCard orgSlug={orgSlug} rows={workload} />;
+	return <MockEngineerStatusCard orgSlug={orgSlug} />;
+}
+
+function MockEngineerStatusCard({ orgSlug }: { orgSlug: string }) {
 	const members = useDb((s) => s.members);
 	const tickets = useDb((s) => s.tickets);
 	const engineers = members.filter((m) => m.status === 'Active' && (m.role === 'Field engineer' || m.role === 'Support agent')).slice(0, 5);
@@ -75,7 +123,7 @@ export function EngineerStatusCard({ orgSlug }: { orgSlug: string }) {
 			<ul className="mt-1">
 				{engineers.map((e) => (
 					<li key={e.id} className="flex items-center gap-2.5 py-2 text-[13px]">
-						<Avatar name={e.name} tint={e.tint} size="sm" />
+						<Avatar name={e.name} tint={e.tint} src={e.avatarUrl} size="sm" />
 						<div className="min-w-0 flex-1">
 							<Link to="/$org/users" params={{ org: orgSlug }} search={{ member: e.id }} className="block truncate font-semibold hover:underline">
 								{e.name}
@@ -94,7 +142,7 @@ export function EngineerStatusCard({ orgSlug }: { orgSlug: string }) {
 	);
 }
 
-export function NeedsAttentionCard({ tickets, now, onOpen, orgSlug }: { tickets: Ticket[]; now: number; onOpen: (key: string) => void; orgSlug: string }) {
+export function NeedsAttentionCard({ tickets, now, onOpen, orgSlug, clientNames }: { tickets: Ticket[]; now: number; onOpen: (key: string) => void; orgSlug: string; clientNames?: Record<string, string> }) {
 	return (
 		<Card className="p-5">
 			<CardHeader title="Needs attention" action={<Pill tone="blocked">{tickets.length}</Pill>} />
@@ -105,7 +153,7 @@ export function NeedsAttentionCard({ tickets, now, onOpen, orgSlug }: { tickets:
 							<TypeDot type={t.type} className="mt-[3px]" />
 							<div className="min-w-0 flex-1">
 								<div className="font-semibold">{t.title}</div>
-								<TicketMeta t={t} now={now} />
+								<TicketMeta t={t} now={now} clientName={clientNames?.[t.key]} />
 							</div>
 						</button>
 					</li>
@@ -119,8 +167,8 @@ export function NeedsAttentionCard({ tickets, now, onOpen, orgSlug }: { tickets:
 	);
 }
 
-export function TicketMeta({ t, now }: { t: Ticket; now: number }) {
-	const client = clientById(t.clientId)?.name.replace(/ (Ltd|Plc|Co\.)$/, '');
+export function TicketMeta({ t, now, clientName }: { t: Ticket; now: number; clientName?: string }) {
+	const client = (clientName ?? clientById(t.clientId)?.name)?.replace(/ (Ltd|Plc|Co\.)$/, '');
 	const sla = t.sla && slaRunning(t) ? countdown(t.sla.resolveDueAt, now) : undefined;
 	return (
 		<div className="truncate text-[11px] text-t2">

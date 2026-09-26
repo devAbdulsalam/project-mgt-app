@@ -9,18 +9,17 @@ import { transitions } from '@/mocks/seed';
 import { toast } from '@/shared/lib/toast-store';
 import type { Ticket } from '@/mocks/types';
 import { useActor } from '../hooks/useActor';
+import { useTicketActions as useLiveTicketActions } from '../hooks/useTicketActions';
+import { useTicketDetail } from '../hooks/useTicketDetail';
 import { SlaCountdown } from './TicketBits';
 import { ActivityList, AttachmentList, CommentComposer, CommentList, DescriptionBlock, LabelsEditor, LinkedIssues, PropertyList, StatusMenu, SubtaskList } from './TicketDetailParts';
 
 type Tab = 'comments' | 'activity' | 'attachments';
 
-function useTicketActions(ticket: Ticket, onClose: () => void) {
+function useTicketActions(ticket: Ticket, onClose: () => void, orgSlug: string) {
 	const actor = useActor();
-	const transition = useDb((s) => s.transition);
-	const assign = useDb((s) => s.assign);
-	const toggleWatch = useDb((s) => s.toggleWatch);
-	const logTime = useDb((s) => s.logTime);
-	const del = useDb((s) => s.deleteTicket);
+	// Mock or live, depending on VITE_USE_LIVE_API — same signatures either way.
+	const actions = useLiveTicketActions(orgSlug);
 	const canResolve = transitions[ticket.status].includes('Resolved');
 	const watching = ticket.watcherIds.includes(actor.id);
 	const mine = ticket.assigneeId === actor.id;
@@ -30,15 +29,17 @@ function useTicketActions(ticket: Ticket, onClose: () => void) {
 		watching,
 		mine,
 		resolve: () => {
-			if (transition(ticket.key, 'Resolved', actor)) toast(`${ticket.key} resolved`, { tone: 'success' });
+			void actions.transition(ticket, 'Resolved').then((ok) => {
+				if (ok) toast(`${ticket.key} resolved`, { tone: 'success' });
+			});
 		},
 		assignMe: () => {
-			assign(ticket.key, mine ? undefined : actor.id, actor);
+			void actions.assign(ticket, mine ? undefined : actor.id);
 			toast(mine ? 'Unassigned' : `${ticket.key} assigned to you`, { tone: 'success' });
 		},
-		watch: () => toggleWatch(ticket.key, actor.id),
+		watch: () => void actions.toggleWatch(ticket),
 		log: (m: number) => {
-			logTime(ticket.key, m, actor);
+			void actions.logTime(ticket, m);
 			toast(`Logged ${m} min on ${ticket.key}`, { tone: 'success' });
 		},
 		copyLink: () => {
@@ -47,9 +48,10 @@ function useTicketActions(ticket: Ticket, onClose: () => void) {
 		},
 		remove: () => {
 			if (window.confirm(`Delete ${ticket.key}? This cannot be undone.`)) {
-				del(ticket.key);
-				toast(`${ticket.key} deleted`);
-				onClose();
+				void actions.deleteTicket(ticket).then(() => {
+					toast(`${ticket.key} deleted`);
+					onClose();
+				});
 			}
 		},
 	};
@@ -98,7 +100,7 @@ function TitleEditor({ ticket, className }: { ticket: Ticket; className?: string
 }
 
 function MoreMenu({ ticket, onClose, orgSlug }: { ticket: Ticket; onClose: () => void; orgSlug: string }) {
-	const a = useTicketActions(ticket, onClose);
+	const a = useTicketActions(ticket, onClose, orgSlug);
 	return (
 		<Menu
 			align="end"
@@ -153,7 +155,7 @@ function Breadcrumb({ ticket, light }: { ticket: Ticket; light?: boolean }) {
 /** Desktop slide-over panel (≥ lg). */
 export function TicketPanel({ ticket, onClose, orgSlug }: { ticket: Ticket; onClose: () => void; orgSlug: string }) {
 	const now = useNow(15_000);
-	const a = useTicketActions(ticket, onClose);
+	const a = useTicketActions(ticket, onClose, orgSlug);
 	const [tab, setTab] = useState<Tab>('comments');
 	const viewers = ticket.watcherIds.slice(0, 2).map(memberById).filter(Boolean);
 
@@ -256,7 +258,7 @@ export function TicketPanel({ ticket, onClose, orgSlug }: { ticket: Ticket; onCl
 /** Mobile full-page detail (< lg). */
 export function TicketMobilePage({ ticket, onClose, orgSlug }: { ticket: Ticket; onClose: () => void; orgSlug: string }) {
 	const now = useNow(15_000);
-	const a = useTicketActions(ticket, onClose);
+	const a = useTicketActions(ticket, onClose, orgSlug);
 	const [tab, setTab] = useState<'details' | 'comments' | 'activity' | 'files'>('details');
 	return (
 		<div className="fixed inset-0 z-40 flex flex-col bg-canvas lg:hidden" role="dialog" aria-modal="true" aria-label={`${ticket.key} ${ticket.title}`}>
@@ -354,7 +356,18 @@ export function TicketMobilePage({ ticket, onClose, orgSlug }: { ticket: Ticket;
 }
 
 export function TicketDetail({ ticketKey, onClose, orgSlug }: { ticketKey: string; onClose: () => void; orgSlug: string }) {
-	const ticket = useDb((s) => s.tickets.find((t) => t.key === ticketKey));
+	const { ticket, loading } = useTicketDetail(ticketKey, orgSlug);
+
+	// Distinguish "still loading" from "does not exist": showing "not found"
+	// while a request is in flight reads as a bug to anyone on a slow link.
+	if (loading) {
+		return (
+			<div className="fixed inset-0 z-40 grid place-items-center bg-[rgba(27,42,50,.25)]">
+				<div className="card p-6 text-center text-[13px] text-t2">Loading {ticketKey}…</div>
+			</div>
+		);
+	}
+
 	if (!ticket) {
 		return (
 			<div className="fixed inset-0 z-40 grid place-items-center bg-[rgba(27,42,50,.25)]" onClick={onClose}>

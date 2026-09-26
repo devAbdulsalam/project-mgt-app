@@ -1,21 +1,22 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Calendar, ChevronDown, Download, Plus, RefreshCw } from 'lucide-react';
 import { AppShell } from '@/shared/layouts/AppShell';
 import { Button, Menu } from '@/shared/ui';
+import { isLiveApi } from '@/shared/lib/live-api';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { formatLongDate, sleep } from '@/shared/lib/format';
 import { useNow } from '@/shared/lib/time';
 import { downloadCsv } from '@/shared/lib/csv';
 import { toast } from '@/shared/lib/toast-store';
-import { useDb } from '@/mocks/db';
 import { KpiCard, KpiCardSkeleton } from '../components/KpiCard';
 import { ChannelChart } from '../components/ChannelChart';
 import { SlaCard } from '../components/SlaCard';
 import { EngineerStatusCard, NeedsAttentionCard, TopClientsCard } from '../components/ListCards';
 import { WelcomeBanner } from '../components/WelcomeBanner';
 import { MobileHomeBody, MobileHomeHeader } from '../components/MobileHome';
-import { dashboardCsv, getDashboardData, rangeLabels, ranges, type DashboardSearch, type Range } from '../model';
+import { useDashboardData } from '../hooks/useDashboardData';
+import { dashboardCsv, rangeLabels, ranges, type DashboardSearch, type Range } from '../model';
 import { CreateTicketDialog } from '@/features/tickets/components/CreateTicketDialog';
 import { TicketDetail } from '@/features/tickets/components/TicketDetail';
 
@@ -24,19 +25,19 @@ export function DashboardPage() {
 	const user = useAuthStore((s) => s.user)!;
 	const navigate = useNavigate();
 	const search = useSearch({ from: '/authed/$org/dashboard' });
-	const tickets = useDb((s) => s.tickets);
 	const now = useNow(30_000);
 	const [refreshing, setRefreshing] = useState(false);
 	const [refreshedAt, setRefreshedAt] = useState<number>();
 	const [creating, setCreating] = useState(false);
 
 	const range: Range = search.range;
-	const data = useMemo(() => getDashboardData(range, tickets, now), [range, tickets, now]);
+	const { data, loading, refetch } = useDashboardData(org.slug, org.timezone, range, now);
 	const setSearch = (patch: Partial<DashboardSearch>) => navigate({ to: '/$org/dashboard', params: { org: org.slug }, search: { ...search, ...patch }, replace: true });
 
 	const refresh = async () => {
 		setRefreshing(true);
-		await sleep(700);
+		// Live, this is a real refetch; the mock has nothing to fetch, so it just pauses.
+		await (isLiveApi() ? refetch() : sleep(700));
 		setRefreshing(false);
 		setRefreshedAt(Date.now());
 		toast('Dashboard refreshed', { tone: 'success', description: `${rangeLabels[range]} · ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` });
@@ -53,7 +54,7 @@ export function DashboardPage() {
 		<AppShell meta={{ title: 'Dashboard', subtitle: `Operations overview · ${org.name}` }} mobileHeader={<MobileHomeHeader org={org} user={user} now={now} />}>
 			{/* Mobile "Home" */}
 			<div className="lg:hidden">
-				<MobileHomeBody org={org} tickets={data.needsAttention} now={now} onOpen={openTicket} onCreate={() => setCreating(true)} />
+				<MobileHomeBody org={org} tickets={data.needsAttention} now={now} onOpen={openTicket} onCreate={() => setCreating(true)} clientNames={data.clientNames} />
 			</div>
 
 			{/* Desktop dashboard */}
@@ -92,7 +93,7 @@ export function DashboardPage() {
 				</div>
 
 				<section aria-label="Key metrics" className="grid grid-cols-2 gap-4 xl:grid-cols-4" data-tour="dash-kpis">
-					{refreshing ? data.kpis.map((k) => <KpiCardSkeleton key={k.id} />) : data.kpis.map((k) => <KpiCard key={k.id} kpi={k} />)}
+					{refreshing || loading || data.kpis.length === 0 ? [0, 1, 2, 3].map((n) => <KpiCardSkeleton key={n} />) : data.kpis.map((k) => <KpiCard key={k.id} kpi={k} />)}
 				</section>
 
 				<section className="grid gap-4 xl:grid-cols-[1.6fr_1fr]">
@@ -101,9 +102,9 @@ export function DashboardPage() {
 				</section>
 
 				<section className="grid gap-4 xl:grid-cols-[1.2fr_1fr_1fr]">
-					<TopClientsCard clients={data.clients} orgSlug={org.slug} />
-					<EngineerStatusCard orgSlug={org.slug} />
-					<div data-tour="dash-attention" className="min-w-0"><NeedsAttentionCard tickets={data.needsAttention} now={now} onOpen={openTicket} orgSlug={org.slug} /></div>
+					<TopClientsCard clients={data.clients} orgSlug={org.slug} total={data.clientTotal} />
+					<EngineerStatusCard orgSlug={org.slug} workload={data.workload} />
+					<div data-tour="dash-attention" className="min-w-0"><NeedsAttentionCard tickets={data.needsAttention} now={now} onOpen={openTicket} orgSlug={org.slug} clientNames={data.clientNames} /></div>
 				</section>
 			</div>
 

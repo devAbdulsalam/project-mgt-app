@@ -9,18 +9,35 @@ export const reportsSearchSchema = z.object({
 });
 export type ReportsSearch = z.infer<typeof reportsSearchSchema>;
 export const rangeLabel = { '30d': 'Aug 11 – Sep 10, 2026', '90d': 'Jun 12 – Sep 10, 2026', quarter: 'Q3 2026 (Jul 1 – Sep 10)' } as const;
+/** The same three labels, computed from today's date rather than the demo's fixed one. */
+export function liveRangeLabel(now: number): Record<ReportsSearch['range'], string> {
+	const fmt = (ms: number, withYear = false) => new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) }).format(ms);
+	const d = new Date(now);
+	const quarter = Math.floor(d.getMonth() / 3);
+	const quarterStart = new Date(d.getFullYear(), quarter * 3, 1).getTime();
+	return {
+		'30d': `${fmt(now - 29 * 86_400_000)} – ${fmt(now, true)}`,
+		'90d': `${fmt(now - 89 * 86_400_000)} – ${fmt(now, true)}`,
+		quarter: `Q${quarter + 1} ${d.getFullYear()} (${fmt(quarterStart)} – ${fmt(now)})`,
+	};
+}
 export const rangeShort = { '30d': 'last 30 days', '90d': 'last 90 days', quarter: 'this quarter' } as const;
 
 function rng(seed: number) { let s = seed; return () => { s = (s * 16807) % 2147483647; return s / 2147483647; }; }
 
 export interface ServiceReport {
 	kpis: { label: string; value: string; sub: string; tone?: 'good' | 'bad' | 'muted' }[];
-	resolution: { day: string; p1: number; p2: number; p3: number; monthEnd?: boolean }[];
-	heat: number[][]; // 6 rows (Mon–Sat) × 12 cols (7..18)
+	/** A null is a period in which nothing of that priority was resolved, drawn as a gap. */
+	resolution: { day: string; p1: number | null; p2: number | null; p3: number | null; monthEnd?: boolean }[];
+	heat: number[][]; // 6 rows (Mon–Sat) × 12 cols (7..18), each 0–1
+	/** Tickets in the busiest cell, to turn a 0–1 value back into a count. The mock's scale is 40. */
+	heatMax?: number;
 	utilisation: { id: string; name: string; billable: number; travel: number; idle: number; note?: string }[];
 	categories: { name: string; count: number; avg: string }[];
 	csat: { client: string; score: number; count: number }[];
 	insight: string;
+	/** Live only: the window the figures cover. */
+	window?: { start: number; end: number };
 }
 
 export function serviceReport(range: ReportsSearch['range'], scale = 1): ServiceReport {

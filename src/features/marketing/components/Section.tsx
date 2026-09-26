@@ -1,15 +1,15 @@
 import type { ReactNode } from 'react';
-import { Link } from '@tanstack/react-router';
+import { AuthLink } from './AuthLink';
 import { ArrowUpRight } from 'lucide-react';
 import { cn } from '@/shared/lib/cn';
 import { Reveal } from './Reveal';
 
 export function CtaLink({ children = 'Get Started', className }: { children?: ReactNode; className?: string }) {
 	return (
-		<Link to="/signup" className={cn('inline-flex items-center gap-1.5 text-[13px] font-semibold text-brand-600 transition-colors hover:text-brand-900', className)}>
+		<AuthLink to="signup" signedInLabel="Go to dashboard" className={cn('inline-flex items-center gap-1.5 text-[13px] font-semibold text-brand-600 transition-colors hover:text-brand-900', className)}>
 			{children}
 			<ArrowUpRight size={15} aria-hidden />
-		</Link>
+		</AuthLink>
 	);
 }
 

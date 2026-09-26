@@ -6,12 +6,12 @@ import { AuthShell, PanelHeadline } from '@/shared/layouts/AuthShell';
 import { Button, Field } from '@/shared/ui';
 import { sleep } from '@/shared/lib/format';
 import { PasswordInput, PasswordStrengthMeter } from '../components/PasswordInput';
-import { passwordStrength } from '../lib/password';
+import { PASSWORD_HINT, passwordField } from '../lib/password-policy';
 import { AuthHeading } from '../components/AuthHeading';
 
 const schema = z
 	.object({
-		password: z.string().min(8, 'Use at least 8 characters').refine((p) => passwordStrength(p).score >= 2, 'Add a mix of letters and numbers'),
+		password: passwordField,
 		confirm: z.string(),
 	})
 	.refine((v) => v.password === v.confirm, { path: ['confirm'], message: 'Passwords do not match' });
@@ -29,7 +29,7 @@ export function ResetPasswordPage() {
 	});
 
 	return (
-		<AuthShell panel={<PanelHeadline title="Choose a new password.">Use at least 8 characters with a mix of letters, numbers and symbols. You'll be signed out of other devices.</PanelHeadline>}>
+		<AuthShell panel={<PanelHeadline title="Choose a new password.">{PASSWORD_HINT} You'll be signed out of other devices.</PanelHeadline>}>
 			<AuthHeading title="Set a new password">
 				Reset link <span className="kbd">{token.slice(0, 12)}</span> is valid for 30 minutes.
 			</AuthHeading>

@@ -5,8 +5,11 @@ import { cn } from '@/shared/lib/cn';
 import { countdown, formatTime, relativeTime } from '@/shared/lib/time';
 import { memberById, useDb } from '@/mocks/db';
 import { toast } from '@/shared/lib/toast-store';
+import { isLiveApi } from '@/shared/lib/live-api';
 import type { Notification } from '@/mocks/types';
-import { useActor } from '@/features/tickets/hooks/useActor';
+import type { Ticket } from '@/mocks/types';
+import { useTicketActions } from '@/features/tickets/hooks/useTicketActions';
+import { useNotificationActions } from '../hooks/useNotificationList';
 
 const kindIcon = {
 	sla: { icon: Timer, cls: 'bg-danger-bg text-danger' },
@@ -53,14 +56,15 @@ export function NotificationSentence({ n, now, compact }: { n: Notification; now
 }
 
 export function NotificationRow({ n, now, onOpen }: { n: Notification; now: number; onOpen?: () => void }) {
-	const actorMe = useActor();
 	const navigate = useNavigate();
-	const markRead = useDb((s) => s.markRead);
-	const snooze = useDb((s) => s.snooze);
+	const live = isLiveApi();
+	const { markRead, snooze } = useNotificationActions();
+	const ticketActions = useTicketActions();
 	const approve = useDb((s) => s.approveNotification);
-	const setPriority = useDb((s) => s.setPriority);
 	const projects = useDb((s) => s.projects);
 	const orgSlug = window.location.pathname.split('/')[1] ?? '';
+	// The ticket actions address a ticket by its key alone; a notification only carries the key.
+	const ticketRef = n.ticketKey ? ({ key: n.ticketKey } as Ticket) : undefined;
 	const openTicket = () => {
 		markRead(n.id);
 		if (n.ticketKey) navigate({ to: '/$org/tickets/$key', params: { org: orgSlug, key: n.ticketKey }, search: {} });
@@ -86,7 +90,7 @@ export function NotificationRow({ n, now, onOpen }: { n: Notification; now: numb
 				{n.kind === 'sla' && !n.title.includes('breached') ? (
 					<div className="mt-2.5 flex flex-wrap items-center gap-2">
 						<Button size="md" variant="primary" onClick={openTicket}>Open ticket</Button>
-						<Button size="md" onClick={() => { if (n.ticketKey) setPriority(n.ticketKey, 'P1', actorMe); markRead(n.id); toast(`${n.ticketKey} escalated to P1 and ops lead paged`, { tone: 'success' }); }}>Escalate</Button>
+						<Button size="md" onClick={() => { if (ticketRef) void ticketActions.setPriority(ticketRef, 'P1'); markRead(n.id); toast(`${n.ticketKey} escalated to P1 and ops lead paged`, { tone: 'success' }); }}>Escalate</Button>
 						<Button size="md" variant="ghost" onClick={() => { snooze(n.id, 30); toast('Snoozed for 30 minutes'); }}>Snooze 30m</Button>
 					</div>
 				) : n.kind === 'mention' ? (
@@ -98,7 +102,8 @@ export function NotificationRow({ n, now, onOpen }: { n: Notification; now: numb
 					<div className="mt-2.5"><Button size="md" onClick={() => { markRead(n.id); const p = projects.find((x) => x.name === n.projectName); navigate({ to: '/$org/projects/$projectKey/sprints', params: { org: orgSlug, projectKey: p?.key ?? 'PB' } }); }}>View report</Button></div>
 				) : null}
 			</div>
-			<button type="button" onClick={() => markRead(n.id, !n.read)} className="self-start text-xs text-t3 hover:text-t1" aria-label={n.read ? 'Mark unread' : 'Mark read'}>{n.read ? 'Unread' : 'Done'}</button>
+			{/* The API can only mark read, so a read row has nothing to offer live. */}
+			{live && n.read ? null : <button type="button" onClick={() => markRead(n.id, !n.read)} className="self-start text-xs text-t3 hover:text-t1" aria-label={n.read ? 'Mark unread' : 'Mark read'}>{n.read ? 'Unread' : 'Done'}</button>}
 		</article>
 	);
 }

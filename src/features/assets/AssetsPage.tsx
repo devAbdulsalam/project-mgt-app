@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,7 +10,10 @@ import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { useNow } from '@/shared/lib/time';
 import { toast } from '@/shared/lib/toast-store';
+import { useAssetActions, useAssetList } from './hooks';
 import { useDb } from '@/mocks/db';
+import { isLiveApi } from '@/shared/lib/live-api';
+import { useClientList } from '@/features/clients/api';
 import type { Asset, AssetCategory, AssetStatus } from '@/mocks/types';
 import { CreateTicketDialog } from '@/features/tickets/components/CreateTicketDialog';
 import { TicketDetail } from '@/features/tickets/components/TicketDetail';
@@ -45,28 +48,37 @@ function QrGlyph({ seed, size = 108 }: { seed: string; size?: number }) {
 const assetSchema = z.object({ tag: z.string().trim().min(3, 'Asset tag'), name: z.string().trim().min(2, 'Model / name'), detail: z.string().optional(), serial: z.string().trim().min(2, 'Serial'), category: z.enum(['endpoint', 'network', 'server', 'power', 'licence', 'pos']), clientId: z.string().min(1), site: z.string().trim().min(1, 'Site'), user: z.string().optional(), status: z.enum(['Healthy', 'Degraded', 'Down', 'In stock', 'Active', 'Expiring']), warranty: z.string().min(1, 'Warranty end') });
 type AssetForm = z.infer<typeof assetSchema>;
 
-function AddAssetDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (tag: string) => void }) {
-	const clients = useDb((s) => s.clientAccounts);
-	const assets = useDb((s) => s.assets);
-	const addAsset = useDb((s) => s.addAsset);
+function AddAssetDialog({ open, onClose, onCreated, orgSlug }: { open: boolean; onClose: () => void; onCreated: (tag: string) => void; orgSlug: string }) {
+	const { clients } = useClientList(orgSlug);
+	const { assets, idByTag } = useAssetList(orgSlug);
+	const actions = useAssetActions(orgSlug, idByTag);
 	const form = useForm<AssetForm>({ resolver: zodResolver(assetSchema), defaultValues: { tag: '', name: '', detail: '', serial: '', category: 'endpoint', clientId: clients[0]?.id ?? '', site: '', user: '', status: 'Healthy', warranty: '' } });
-	const submit = form.handleSubmit((v) => {
-		if (assets.some((a) => a.tag === v.tag.toUpperCase())) return form.setError('tag', { message: 'Tag already exists' });
-		addAsset({ ...v, tag: v.tag.toUpperCase(), detail: v.detail ?? '', agent: v.category === 'licence' ? '—' : 'n/a', warrantyAt: new Date(v.warranty).getTime() });
-		toast(`${v.tag.toUpperCase()} added`, { tone: 'success' });
+	// Live clients arrive after the form is built; pick the first one once they do.
+	const firstClient = clients[0]?.id;
+	useEffect(() => { if (firstClient && !form.getValues('clientId')) form.setValue('clientId', firstClient); }, [firstClient, form]);
+	const submit = form.handleSubmit(async (v) => {
+		const tag = v.tag.toUpperCase();
+		// Checked locally for a fast message; the database has a unique index
+		// that is the actual guarantee, and `create` surfaces that too.
+		if (assets.some((a) => a.tag === tag)) return form.setError('tag', { message: 'Tag already exists' });
+
+		const created = await actions.create({ ...v, tag, warrantyAt: new Date(v.warranty).getTime() });
+		if (!created) return form.setError('tag', { message: 'Could not create that asset' });
+
+		toast(`${tag} added`, { tone: 'success' });
 		form.reset();
-		onCreated(v.tag.toUpperCase());
+		onCreated(tag);
 		onClose();
 	});
 	return (
-		<Dialog open={open} onClose={onClose} title="Add asset" width="max-w-[640px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit}>Add asset</Button></div>}>
+		<Dialog open={open} onClose={onClose} title="Add asset" width="max-w-[640px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} disabled={form.formState.isSubmitting}>Add asset</Button></div>}>
 			<form onSubmit={submit} className="grid gap-4 px-5 py-5 sm:grid-cols-2 sm:px-7">
 				<Field label="Asset tag" required error={form.formState.errors.tag?.message}>{(id) => <Input id={id} placeholder="LF-LAP-0210" className="font-mono uppercase" {...form.register('tag')} />}</Field>
 				<Field label="Category">{(id) => <Select id={id} {...form.register('category')}>{(Object.keys(categoryLabel) as AssetCategory[]).map((c) => <option key={c} value={c}>{categoryLabel[c]}</option>)}</Select>}</Field>
 				<Field label="Model / name" required error={form.formState.errors.name?.message} className="sm:col-span-2">{(id) => <Input id={id} placeholder="e.g. Dell Latitude 5540" {...form.register('name')} />}</Field>
 				<Field label="Detail">{(id) => <Input id={id} placeholder="i7 · 16GB · Win 11 Pro" {...form.register('detail')} />}</Field>
 				<Field label="Serial" required error={form.formState.errors.serial?.message}>{(id) => <Input id={id} className="font-mono" {...form.register('serial')} />}</Field>
-				<Field label="Client">{(id) => <Select id={id} {...form.register('clientId')}>{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>}</Field>
+				<Field label="Client">{(id) => <Select id={id} {...form.register('clientId')}>{clients.length === 0 ? <option value="">No clients yet</option> : null}{clients.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select>}</Field>
 				<Field label="Site" required error={form.formState.errors.site?.message}>{(id) => <Input id={id} placeholder="Head office" {...form.register('site')} />}</Field>
 				<Field label="User / location">{(id) => <Input id={id} {...form.register('user')} />}</Field>
 				<Field label="Status">{(id) => <Select id={id} {...form.register('status')}>{(['Healthy', 'Degraded', 'Down', 'In stock', 'Active', 'Expiring'] as AssetStatus[]).map((s) => <option key={s}>{s}</option>)}</Select>}</Field>
@@ -77,20 +89,23 @@ function AddAssetDialog({ open, onClose, onCreated }: { open: boolean; onClose: 
 }
 
 function AssetPanel({ asset, onClose, onTicket, orgSlug }: { asset: Asset; onClose: () => void; onTicket: () => void; orgSlug: string }) {
-	const updateAsset = useDb((s) => s.updateAsset);
-	const deleteAsset = useDb((s) => s.deleteAsset);
-	const client = useDb((s) => s.clientAccounts.find((c) => c.id === asset.clientId));
-	const openTicket = useDb((s) => s.tickets.find((t) => t.key === asset.openTicketKey));
+	const { idByTag } = useAssetList(orgSlug);
+	const assetActions = useAssetActions(orgSlug, idByTag);
+	const { clients } = useClientList(orgSlug);
+	const client = clients.find((c) => c.id === asset.clientId);
+	// Live, the asset carries its open ticket's key; only the mock has tickets in memory to look up.
+	const mockTicket = useDb((s) => s.tickets.find((t) => t.key === asset.openTicketKey));
+	const openTicket = isLiveApi() ? (asset.openTicketKey ? { key: asset.openTicketKey } : undefined) : mockTicket;
 	const now = useNow(60_000);
 	const [editing, setEditing] = useState(false);
 	const [draft, setDraft] = useState({ name: asset.name, site: asset.site, location: asset.location ?? '', user: asset.user ?? '', status: asset.status, firmware: asset.firmware ?? '' });
 	const navigate = useNavigate();
-	const save = () => { updateAsset(asset.tag, { ...draft, location: draft.location || undefined, user: draft.user || undefined, firmware: draft.firmware || undefined }, 'Details edited'); setEditing(false); toast('Asset updated', { tone: 'success' }); };
+	const save = () => { void assetActions.update(asset.tag, { ...draft, location: draft.location || undefined, user: draft.user || undefined, firmware: draft.firmware || undefined }).then((ok) => { if (!ok) return; setEditing(false); toast('Asset updated', { tone: 'success' }); }); };
 	const rows: [string, React.ReactNode][] = [
 		['Client', client ? <Link to="/$org/customers/$clientId" params={{ org: orgSlug, clientId: client.id }} search={{}} className="text-brand-600 hover:underline">{client.name}</Link> : '—'],
 		['Site', editing ? <Input value={draft.site} onChange={(e) => setDraft({ ...draft, site: e.target.value })} className="h-8" aria-label="Site" /> : `${asset.site}${asset.location ? ` · ${asset.location}` : ''}`],
 		['Serial', <span key="s" className="font-mono">{asset.serial}</span>],
-		...(asset.category !== 'licence' ? [['Firmware', editing ? <Input value={draft.firmware} onChange={(e) => setDraft({ ...draft, firmware: e.target.value })} className="h-8" aria-label="Firmware" /> : <>{asset.firmware ?? '—'}{asset.firmwareAvailable ? <button type="button" className="ms-2 text-high-fg hover:underline" onClick={() => { updateAsset(asset.tag, { firmware: asset.firmwareAvailable, firmwareAvailable: undefined }, `Firmware updated to ${asset.firmwareAvailable}`); toast('Firmware update scheduled', { tone: 'success' }); }}>{asset.firmwareAvailable} available</button> : null}</>] as [string, React.ReactNode]] : []),
+		...(asset.category !== 'licence' ? [['Firmware', editing ? <Input value={draft.firmware} onChange={(e) => setDraft({ ...draft, firmware: e.target.value })} className="h-8" aria-label="Firmware" /> : <>{asset.firmware ?? '—'}{asset.firmwareAvailable ? <button type="button" className="ms-2 text-high-fg hover:underline" onClick={() => { void assetActions.update(asset.tag, { firmware: asset.firmwareAvailable, firmwareAvailable: undefined }).then((ok) => ok && toast('Firmware update scheduled', { tone: 'success' })); }}>{asset.firmwareAvailable} available</button> : null}</>] as [string, React.ReactNode]] : []),
 		...(asset.wan ? [['WAN', asset.wan] as [string, React.ReactNode]] : []),
 		['User', editing ? <Input value={draft.user} onChange={(e) => setDraft({ ...draft, user: e.target.value })} className="h-8" aria-label="User" /> : asset.user ?? '—'],
 		['Purchased', asset.purchased ?? '—'],
@@ -113,9 +128,9 @@ function AssetPanel({ asset, onClose, onTicket, orgSlug }: { asset: Asset; onClo
 				<Button size="md" onClick={onTicket}><TicketIcon size={14} aria-hidden /> New ticket</Button>
 				<Button size="md" onClick={() => toast(`Label queued for ${asset.tag}`, { description: 'Sent to the Ikeja office label printer.' })}><QrCode size={14} aria-hidden /> Label</Button>
 				<Menu align="end" width="w-48" className="ms-auto" trigger={({ toggle, buttonProps }) => <Button size="md" iconOnly onClick={toggle} aria-label="More" {...buttonProps}><MoreHorizontal size={14} /></Button>} items={[
-					{ key: 'stock', label: 'Move to stock', onSelect: () => { updateAsset(asset.tag, { status: 'In stock', user: 'Unassigned · spare' }, 'Returned to stock'); toast('Moved to stock'); } },
+					{ key: 'stock', label: 'Move to stock', onSelect: () => { void assetActions.update(asset.tag, { status: 'In stock', user: 'Unassigned · spare' }).then((ok) => ok && toast('Moved to stock')); } },
 					{ key: 'tickets', label: 'View tickets for this asset', onSelect: () => navigate({ to: '/$org/tickets', params: { org: orgSlug }, search: { q: asset.tag.split('-')[0] === 'LF' ? asset.name.split(' ')[0] : asset.name.split(' ')[0] } }) },
-					{ key: 'delete', label: 'Delete asset', icon: <Trash2 size={14} />, danger: true, onSelect: () => { if (window.confirm(`Delete ${asset.tag}?`)) { deleteAsset(asset.tag); onClose(); toast(`${asset.tag} deleted`); } } },
+					{ key: 'delete', label: 'Delete asset', icon: <Trash2 size={14} />, danger: true, onSelect: () => { if (window.confirm(`Delete ${asset.tag}?`)) { void assetActions.remove(asset.tag).then((ok) => { if (!ok) return; onClose(); toast(`${asset.tag} deleted`); }); } } },
 				]} />
 			</div>
 			<dl className="mt-4 divide-y divide-border text-[13px]">{rows.map(([k, v]) => <div key={k} className="flex gap-3 py-2.5"><dt className="w-24 shrink-0 text-t2">{k}</dt><dd className="min-w-0 flex-1">{v}</dd></div>)}</dl>
@@ -129,9 +144,9 @@ export function AssetsPage() {
 	const org = useAuthStore((s) => s.org)!;
 	const navigate = useNavigate();
 	const search = useSearch({ from: '/authed/$org/assets' });
-	const assets = useDb((s) => s.assets);
-	const clients = useDb((s) => s.clientAccounts);
-	const addAsset = useDb((s) => s.addAsset);
+	const { assets, idByTag, loading, error, refetch } = useAssetList(org.slug);
+	const { clients } = useClientList(org.slug);
+	const assetActions = useAssetActions(org.slug, idByTag);
 	const now = useNow(60_000);
 	const [adding, setAdding] = useState(false);
 	const [ticketFor, setTicketFor] = useState<Asset>();
@@ -148,11 +163,22 @@ export function AssetsPage() {
 	const clientName = (id: string) => clients.find((c) => c.id === id)?.name ?? id;
 
 	const importCsv = (file: File) => {
-		file.text().then((text) => {
+		file.text().then(async (text) => {
 			const rows = text.split(/\r?\n/).map((r) => r.split(',').map((c) => c.trim())).filter((r) => r.length >= 5 && r[0] && !/^tag$/i.test(r[0]!));
-			let n = 0;
-			rows.forEach((r) => { if (!assets.some((a) => a.tag === r[0]!.toUpperCase())) { addAsset({ tag: r[0]!.toUpperCase(), name: r[1]!, detail: r[2] ?? '', serial: r[3] ?? '', category: (['endpoint', 'network', 'server', 'power', 'licence', 'pos'].includes(r[4]!) ? r[4] : 'endpoint') as AssetCategory, clientId: clients.find((c) => c.name === r[5])?.id ?? clients[0]!.id, site: r[6] ?? 'Head office', status: 'Healthy', agent: 'n/a', warrantyAt: Date.now() + 365 * 86_400_000 }); n++; } });
-			toast(`Imported ${n} assets`, { tone: n ? 'success' : 'danger', description: n ? undefined : 'Expected columns: tag, name, detail, serial, category, client, site' });
+			const fresh = rows.filter((r) => !assets.some((a) => a.tag === r[0]!.toUpperCase()));
+			// Without clients there is nothing to file the rows under.
+			if (fresh.length && clients.length === 0) return toast('Add a client before importing assets', { tone: 'danger' });
+
+			const result = await assetActions.importMany(fresh.map((r) => ({
+				tag: r[0]!.toUpperCase(), name: r[1]!, detail: r[2] ?? '', serial: r[3] ?? '',
+				category: (['endpoint', 'network', 'server', 'power', 'licence', 'pos'].includes(r[4]!) ? r[4] : 'endpoint') as AssetCategory,
+				clientId: clients.find((c) => c.name === r[5])?.id ?? clients[0]!.id, site: r[6] ?? 'Head office', status: 'Healthy' as const,
+				// The file has no warranty column: the demo store guesses a year, the API stores nothing rather than invent a date.
+				warrantyAt: isLiveApi() ? 0 : Date.now() + 365 * 86_400_000,
+			})));
+
+			if (result.created) toast(`Imported ${result.created} assets`, { tone: 'success', description: result.failed ? `${result.failed} row${result.failed === 1 ? '' : 's'} skipped: duplicate tags or invalid values.` : undefined });
+			else toast('Imported 0 assets', { tone: 'danger', description: result.message ?? 'Expected columns: tag, name, detail, serial, category, client, site' });
 		});
 	};
 
@@ -179,7 +205,7 @@ export function AssetsPage() {
 
 			<div className={cn('mt-4 grid gap-4 [&>*]:min-w-0', current && 'xl:grid-cols-[minmax(0,1fr)_420px]')}>
 				<Card className="overflow-x-auto" data-tour="m-assets">
-					{list.length === 0 ? <EmptyState icon={<Cpu size={20} />} title="No assets match" action={<Button variant="primary" onClick={() => setAdding(true)}>Add asset</Button>} /> : (
+					{loading ? <EmptyState icon={<Cpu size={20} />} title="Loading assets…" /> : error ? <EmptyState icon={<Cpu size={20} />} title="Could not load assets" action={<Button variant="primary" onClick={refetch}>Try again</Button>}>{error instanceof Error ? error.message : 'Something went wrong.'}</EmptyState> : list.length === 0 ? <EmptyState icon={<Cpu size={20} />} title={assets.length === 0 ? 'No assets yet' : 'No assets match'} action={<Button variant="primary" onClick={() => setAdding(true)}>Add asset</Button>} /> : (
 						<table className="w-full text-[13px]">
 							<thead><tr className="bg-muted text-left text-[11px] font-semibold tracking-wider text-t2 uppercase"><th className="hidden w-10 px-3.5 py-3 lg:table-cell"><input type="checkbox" className="size-4 accent-brand-900" checked={list.every((a) => selected.has(a.tag))} onChange={() => setSelected(list.every((a) => selected.has(a.tag)) ? new Set() : new Set(list.map((a) => a.tag)))} aria-label="Select all" /></th><th className="px-3.5 py-3">Tag</th><th className="px-3.5 py-3">Asset</th><th className="hidden px-3.5 py-3 md:table-cell">Site · User</th><th className="px-3.5 py-3">Status</th><th className="hidden px-3.5 py-3 lg:table-cell">Agent</th><th className="hidden px-3.5 py-3 md:table-cell">Warranty</th><th className="hidden px-3.5 py-3 lg:table-cell">Open</th></tr></thead>
 							<tbody>
@@ -203,8 +229,10 @@ export function AssetsPage() {
 			</div>
 
 			<Dialog open={!!current && typeof window !== 'undefined' && window.innerWidth < 1280} onClose={() => setSearch({ asset: undefined })} title={current?.tag} width="max-w-[520px]">{current ? <div className="p-4"><AssetPanel asset={current} orgSlug={org.slug} onClose={() => setSearch({ asset: undefined })} onTicket={() => setTicketFor(current)} /></div> : null}</Dialog>
-			<AddAssetDialog open={adding} onClose={() => setAdding(false)} onCreated={(tag) => setSearch({ asset: tag, tab: 'all', q: undefined })} />
-			<CreateTicketDialog open={!!ticketFor} onClose={() => setTicketFor(undefined)} defaultProjectKey="KS" defaults={ticketFor ? { clientId: ticketFor.clientId, asset: `${ticketFor.name} · ${ticketFor.tag}`, title: `${ticketFor.name} at ${ticketFor.site}: ` } : undefined} onCreated={(key) => { if (ticketFor) useDb.getState().updateAsset(ticketFor.tag, { openTicketKey: key }, `Ticket ${key} opened`); setSearch({ panel: key }); }} />
+			<AddAssetDialog orgSlug={org.slug} open={adding} onClose={() => setAdding(false)} onCreated={(tag) => setSearch({ asset: tag, tab: 'all', q: undefined })} />
+			<CreateTicketDialog open={!!ticketFor} onClose={() => setTicketFor(undefined)} defaultProjectKey="KS" defaults={ticketFor ? { clientId: ticketFor.clientId, asset: `${ticketFor.name} · ${ticketFor.tag}`, title: `${ticketFor.name} at ${ticketFor.site}: ` } : undefined} onCreated={(key) => { // Live, the ticket -> asset link is `tickets.asset_id`, which the create
+					// endpoint does not accept yet; so only the mock store records it.
+					if (ticketFor && !isLiveApi()) useDb.getState().updateAsset(ticketFor.tag, { openTicketKey: key }, `Ticket ${key} opened`); setSearch({ panel: key }); }} />
 			{search.panel ? <TicketDetail ticketKey={search.panel} orgSlug={org.slug} onClose={() => setSearch({ panel: undefined })} /> : null}
 		</AppShell>
 	);

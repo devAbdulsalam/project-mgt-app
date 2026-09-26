@@ -2,9 +2,11 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button, Dialog, Field, Input, Select, Textarea } from '@/shared/ui';
-import { useDb } from '@/mocks/db';
+import { useAuthStore } from '@/shared/lib/auth-store';
 import { toast } from '@/shared/lib/toast-store';
+import { useTeamMembers } from '@/shared/lib/use-team-members';
 import { useActor } from '@/features/tickets/hooks/useActor';
+import { useClientActions } from '../api';
 
 const clientSchema = z.object({
 	name: z.string().trim().min(2, 'Enter the company name'),
@@ -20,18 +22,21 @@ type ClientForm = z.infer<typeof clientSchema>;
 
 export function AddClientDialog({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (id: string) => void }) {
 	const actor = useActor();
-	const addClient = useDb((s) => s.addClient);
-	const members = useDb((s) => s.members);
+	const org = useAuthStore((s) => s.org)!;
+	const { addClient } = useClientActions(org.slug);
+	const members = useTeamMembers();
 	const form = useForm<ClientForm>({ resolver: zodResolver(clientSchema), defaultValues: { name: '', rc: '', industry: 'Fintech', city: 'Lagos', plan: 'Silver', contactName: '', contactPhone: '', accountManagerId: actor.id } });
-	const submit = form.handleSubmit((v) => {
-		const c = addClient({ ...v, rc: v.rc ? (v.rc.startsWith('RC') ? v.rc : `RC ${v.rc}`) : '' });
+	const submit = form.handleSubmit(async (v) => {
+		const c = await addClient({ ...v, rc: v.rc ? (v.rc.startsWith('RC') ? v.rc : `RC ${v.rc}`) : '' });
+		// On failure the action has already said why; keep the form so nothing typed is lost.
+		if (!c) return;
 		toast(`${c.name} added`, { tone: 'success', description: `${c.plan} plan · account manager ${members.find((m) => m.id === v.accountManagerId)?.name ?? ''}` });
 		form.reset();
 		onCreated(c.id);
 		onClose();
 	});
 	return (
-		<Dialog open={open} onClose={onClose} title="Add client" width="max-w-[620px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit}>Add client</Button></div>}>
+		<Dialog open={open} onClose={onClose} title="Add client" width="max-w-[620px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} disabled={form.formState.isSubmitting}>Add client</Button></div>}>
 			<form onSubmit={submit} className="grid gap-4 px-5 py-5 sm:grid-cols-2 sm:px-7">
 				<Field label="Company name" required error={form.formState.errors.name?.message} className="sm:col-span-2">{(id) => <Input id={id} placeholder="e.g. Yaba Microfinance Bank" {...form.register('name')} />}</Field>
 				<Field label="RC number">{(id) => <Input id={id} placeholder="1234567" {...form.register('rc')} />}</Field>
@@ -48,11 +53,12 @@ export function AddClientDialog({ open, onClose, onCreated }: { open: boolean; o
 
 const siteSchema = z.object({ name: z.string().trim().min(2, 'Site name'), address: z.string().trim().min(2, 'Address'), contactName: z.string().trim().min(2, 'Site contact') });
 export function AddSiteDialog({ open, onClose, clientId }: { open: boolean; onClose: () => void; clientId: string }) {
-	const addSite = useDb((s) => s.addSite);
+	const org = useAuthStore((s) => s.org)!;
+	const { addSite } = useClientActions(org.slug);
 	const form = useForm<z.infer<typeof siteSchema>>({ resolver: zodResolver(siteSchema), defaultValues: { name: '', address: '', contactName: '' } });
-	const submit = form.handleSubmit((v) => { addSite(clientId, v); toast('Site added', { tone: 'success' }); form.reset(); onClose(); });
+	const submit = form.handleSubmit(async (v) => { if (!(await addSite(clientId, v))) return; toast('Site added', { tone: 'success' }); form.reset(); onClose(); });
 	return (
-		<Dialog open={open} onClose={onClose} title="Add site" width="max-w-[480px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit}>Add site</Button></div>}>
+		<Dialog open={open} onClose={onClose} title="Add site" width="max-w-[480px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} disabled={form.formState.isSubmitting}>Add site</Button></div>}>
 			<form onSubmit={submit} className="space-y-4 px-5 py-5 sm:px-7">
 				<Field label="Site name" required error={form.formState.errors.name?.message}>{(id) => <Input id={id} placeholder="e.g. Yaba branch" {...form.register('name')} />}</Field>
 				<Field label="Address" required error={form.formState.errors.address?.message}>{(id) => <Input id={id} {...form.register('address')} />}</Field>
@@ -64,11 +70,12 @@ export function AddSiteDialog({ open, onClose, clientId }: { open: boolean; onCl
 
 const contactSchema = z.object({ name: z.string().trim().min(2, 'Name'), role: z.string().trim().min(2, 'Role'), channel: z.enum(['whatsapp', 'email', 'phone']), phone: z.string().optional(), email: z.string().optional() });
 export function AddContactDialog({ open, onClose, clientId }: { open: boolean; onClose: () => void; clientId: string }) {
-	const addContact = useDb((s) => s.addContact);
+	const org = useAuthStore((s) => s.org)!;
+	const { addContact } = useClientActions(org.slug);
 	const form = useForm<z.infer<typeof contactSchema>>({ resolver: zodResolver(contactSchema), defaultValues: { name: '', role: '', channel: 'whatsapp', phone: '', email: '' } });
-	const submit = form.handleSubmit((v) => { addContact(clientId, v); toast('Contact added', { tone: 'success' }); form.reset(); onClose(); });
+	const submit = form.handleSubmit(async (v) => { if (!(await addContact(clientId, v))) return; toast('Contact added', { tone: 'success' }); form.reset(); onClose(); });
 	return (
-		<Dialog open={open} onClose={onClose} title="Add contact" width="max-w-[480px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit}>Add contact</Button></div>}>
+		<Dialog open={open} onClose={onClose} title="Add contact" width="max-w-[480px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} disabled={form.formState.isSubmitting}>Add contact</Button></div>}>
 			<form onSubmit={submit} className="space-y-4 px-5 py-5 sm:px-7">
 				<Field label="Name" required error={form.formState.errors.name?.message}>{(id) => <Input id={id} {...form.register('name')} />}</Field>
 				<Field label="Role" required error={form.formState.errors.role?.message}>{(id) => <Input id={id} placeholder="e.g. Branch manager" {...form.register('role')} />}</Field>
@@ -82,12 +89,13 @@ export function AddContactDialog({ open, onClose, clientId }: { open: boolean; o
 
 export function NoteComposer({ clientId }: { clientId: string }) {
 	const actor = useActor();
-	const addNote = useDb((s) => s.addClientNote);
+	const org = useAuthStore((s) => s.org)!;
+	const { addNote } = useClientActions(org.slug);
 	const form = useForm<{ body: string }>({ defaultValues: { body: '' } });
 	return (
-		<form onSubmit={form.handleSubmit((v) => { if (!v.body.trim()) return; addNote(clientId, v.body, actor); form.reset(); toast('Note added', { tone: 'success' }); })} className="space-y-2">
+		<form onSubmit={form.handleSubmit(async (v) => { if (!v.body.trim()) return; if (!(await addNote(clientId, v.body, actor))) return; form.reset(); toast('Note added', { tone: 'success' }); })} className="space-y-2">
 			<Textarea rows={3} placeholder="Add an account note… visible to the team only" aria-label="Note" {...form.register('body')} />
-			<div className="flex justify-end"><Button type="submit" variant="primary" size="md">Add note</Button></div>
+			<div className="flex justify-end"><Button type="submit" variant="primary" size="md" disabled={form.formState.isSubmitting}>Add note</Button></div>
 		</form>
 	);
 }

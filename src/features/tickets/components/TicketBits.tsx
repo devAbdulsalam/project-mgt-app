@@ -27,7 +27,7 @@ export function AssigneeCell({ assigneeId, size = 'sm', short }: { assigneeId?: 
 	const [first, last] = m.name.split(' ');
 	return (
 		<span className="inline-flex items-center gap-2 text-[13px]">
-			<Avatar name={m.name} tint={m.tint} size={size} />
+			<Avatar name={m.name} tint={m.tint} src={m.avatarUrl} size={size} />
 			<span className="truncate">{short ? `${first} ${last?.[0] ?? ''}.` : m.name}</span>
 		</span>
 	);

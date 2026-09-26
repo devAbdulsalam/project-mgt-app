@@ -1,5 +1,5 @@
 import type { LucideIcon } from 'lucide-react';
-import { LayoutGrid, Inbox, Ticket, Folder, Columns3, Building2, Cpu, CalendarDays, BarChart3, Bell, Users, Settings, BookOpen, Home, User } from 'lucide-react';
+import { LayoutGrid, Inbox, Ticket, Folder, Columns3, Building2, Cpu, CalendarDays, BarChart3, Bell, Users, Settings, BookOpen, Home, User, GraduationCap, Receipt } from 'lucide-react';
 
 export interface NavItem {
 	to: string; // relative to /$org
@@ -17,6 +17,8 @@ export const sidebarNav: NavItem[] = [
 	{ to: 'customers', label: 'Clients', icon: Building2 },
 	{ to: 'assets', label: 'Assets', icon: Cpu },
 	{ to: 'visits', label: 'Visits', icon: CalendarDays },
+	{ to: 'programs', label: 'Programmes', icon: GraduationCap },
+	{ to: 'expenses', label: 'Expenses', icon: Receipt },
 	{ to: 'kb', label: 'Knowledge base', icon: BookOpen },
 	{ to: 'reports', label: 'Reports', icon: BarChart3 },
 	{ to: 'notifications', label: 'Notifications', icon: Bell, badge: 1 },

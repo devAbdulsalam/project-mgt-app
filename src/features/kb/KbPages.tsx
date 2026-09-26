@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -11,27 +11,45 @@ import { useAuthStore } from '@/shared/lib/auth-store';
 import { relativeTime, useNow } from '@/shared/lib/time';
 import { toast } from '@/shared/lib/toast-store';
 import { memberById, useDb } from '@/mocks/db';
+import { ApiError } from '@/api';
+import { isLiveApi } from '@/shared/lib/live-api';
 import type { KbArticle } from '@/mocks/types';
+import { useKbActions, useKbArticle, useKbList } from './api';
 import { RichText } from '@/features/tickets/components/TicketDetailParts';
-import { useActor } from '@/features/tickets/hooks/useActor';
 import { kbCategories, type KbSearch } from './model';
 
 const schema = z.object({ title: z.string().trim().min(4, 'Give the article a title'), category: z.string().min(1), summary: z.string().trim().min(10, 'One sentence summary'), body: z.string().trim().min(20, 'Write the article body'), visibility: z.enum(['internal', 'public']), tags: z.string().optional(), status: z.enum(['Published', 'Draft']) });
 type Form = z.infer<typeof schema>;
 
 function ArticleDialog({ open, onClose, article, onSaved }: { open: boolean; onClose: () => void; article?: KbArticle; onSaved: (slug: string) => void }) {
-	const actor = useActor();
-	const createArticle = useDb((s) => s.createArticle);
-	const updateArticle = useDb((s) => s.updateArticle);
-	const form = useForm<Form>({ resolver: zodResolver(schema), defaultValues: article ? { title: article.title, category: article.category, summary: article.summary, body: article.body, visibility: article.visibility, tags: article.tags.join(', '), status: article.status } : { title: '', category: kbCategories[0]!, summary: '', body: '', visibility: 'internal', tags: '', status: 'Published' } });
-	const submit = form.handleSubmit((v) => {
+	const org = useAuthStore((s) => s.org)!;
+	const kbActions = useKbActions(org.slug);
+	const valuesFor = (a?: KbArticle): Form => a ? { title: a.title, category: a.category, summary: a.summary, body: a.body, visibility: a.visibility, tags: a.tags.join(', '), status: a.status } : { title: '', category: kbCategories[0]!, summary: '', body: '', visibility: 'internal', tags: '', status: 'Published' };
+	const form = useForm<Form>({ resolver: zodResolver(schema), defaultValues: valuesFor(article) });
+	// The form is mounted before the article's body has loaded (live), so take
+	// the values each time it opens rather than once at mount.
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	useEffect(() => { if (open) form.reset(valuesFor(article)); }, [open]);
+	const submit = form.handleSubmit(async (v) => {
 		const tags = (v.tags ?? '').split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
-		if (article) { updateArticle(article.id, { ...v, tags, readMin: Math.max(1, Math.round(v.body.split(/\s+/).length / 180)) }); toast('Article updated', { tone: 'success' }); onSaved(article.slug); }
-		else { const a = createArticle({ ...v, tags }, actor); toast(`"${a.title}" ${a.status === 'Draft' ? 'saved as draft' : 'published'}`, { tone: 'success' }); onSaved(a.slug); }
+		if (article) {
+			// Addressed by slug: that is the article's public identity, and the one
+			// the API routes on.
+			if (!(await kbActions.update(article.slug, { ...v, tags }))) return;
+			toast('Article updated', { tone: 'success' });
+			onSaved(article.slug);
+		} else {
+			const slug = await kbActions.create({ ...v, tags });
+			// On failure the action has already said why; keep the draft in the form.
+			if (!slug) return;
+			toast(`"${v.title}" saved`, { tone: 'success' });
+			form.reset(valuesFor());
+			onSaved(slug);
+		}
 		onClose();
 	});
 	return (
-		<Dialog open={open} onClose={onClose} title={article ? 'Edit article' : 'New article'} width="max-w-[760px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit}>{article ? 'Save' : 'Publish'}</Button></div>}>
+		<Dialog open={open} onClose={onClose} title={article ? 'Edit article' : 'New article'} width="max-w-[760px]" footer={<div className="flex justify-end gap-2"><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} disabled={form.formState.isSubmitting}>{article ? 'Save' : 'Publish'}</Button></div>}>
 			<form onSubmit={submit} className="grid gap-4 px-5 py-5 sm:grid-cols-2 sm:px-7">
 				<Field label="Title" required error={form.formState.errors.title?.message} className="sm:col-span-2">{(id) => <Input id={id} {...form.register('title')} />}</Field>
 				<Field label="Category">{(id) => <Select id={id} {...form.register('category')}>{kbCategories.map((c) => <option key={c}>{c}</option>)}</Select>}</Field>
@@ -49,11 +67,17 @@ export function KbPage() {
 	const org = useAuthStore((s) => s.org)!;
 	const navigate = useNavigate();
 	const search = useSearch({ from: '/authed/$org/kb' });
-	const kb = useDb((s) => s.kb);
+	const live = isLiveApi();
+	// Live, the server searches the article bodies too; give it a beat between keystrokes.
+	const [term, setTerm] = useState(search.q);
+	useEffect(() => { const t = setTimeout(() => setTerm(search.q), 250); return () => clearTimeout(t); }, [search.q]);
+	const { articles: kb, loading, error, refetch } = useKbList(org.slug, { q: term });
 	const now = useNow(60_000);
 	const [creating, setCreating] = useState(false);
 	const setSearch = (patch: Partial<KbSearch>) => navigate({ to: '/$org/kb', params: { org: org.slug }, search: { ...search, ...patch }, replace: true });
-	const list = useMemo(() => kb.filter((a) => (search.visibility === 'all' ? true : search.visibility === 'draft' ? a.status === 'Draft' : a.visibility === search.visibility && a.status === 'Published')).filter((a) => !search.category || a.category === search.category).filter((a) => !search.q || `${a.title} ${a.summary} ${a.tags.join(' ')} ${a.body}`.toLowerCase().includes(search.q.toLowerCase())).sort((a, b) => b.views - a.views), [kb, search]);
+	// Live, the list carries summaries only, so the local text match would drop
+	// articles the server matched on their body; the server's answer stands.
+	const list = useMemo(() => kb.filter((a) => (search.visibility === 'all' ? true : search.visibility === 'draft' ? a.status === 'Draft' : a.visibility === search.visibility && a.status === 'Published')).filter((a) => !search.category || a.category === search.category).filter((a) => live || !search.q || `${a.title} ${a.summary} ${a.tags.join(' ')} ${a.body}`.toLowerCase().includes(search.q.toLowerCase())).sort((a, b) => b.views - a.views), [kb, search, live]);
 	const categories = Array.from(new Set([...kbCategories, ...kb.map((a) => a.category)])).map((c) => ({ name: c, count: kb.filter((a) => a.category === c).length })).filter((c) => c.count > 0);
 	const popular = [...kb].filter((a) => a.status === 'Published').sort((a, b) => b.views - a.views).slice(0, 3);
 
@@ -77,13 +101,15 @@ export function KbPage() {
 					<Card className="hidden p-4 lg:block"><CardHeader title="Popular" /><ul className="mt-2 space-y-2 text-[13px]">{popular.map((a) => <li key={a.id}><Link to="/$org/kb/$slug" params={{ org: org.slug, slug: a.slug }} className="flex items-start gap-2 hover:underline"><BookOpen size={14} className="mt-0.5 shrink-0 text-t3" aria-hidden /><span className="min-w-0 flex-1">{a.title}<span className="block text-xs text-t2">{a.views} views · {a.readMin} min read</span></span></Link></li>)}</ul></Card>
 				</div>
 				<div className="space-y-3">
-					{list.length === 0 ? <Card><EmptyState icon={<BookOpen size={20} />} title="No articles match" action={<Button variant="primary" onClick={() => setCreating(true)}>Write the first one</Button>} /></Card> : null}
+					{loading ? <Card><EmptyState icon={<BookOpen size={20} />} title="Loading articles…" /></Card> : null}
+					{error ? <Card><EmptyState icon={<BookOpen size={20} />} title="Could not load articles" action={<Button variant="primary" onClick={refetch}>Try again</Button>}>{error instanceof Error ? error.message : 'Something went wrong.'}</EmptyState></Card> : null}
+					{!loading && !error && list.length === 0 ? <Card><EmptyState icon={<BookOpen size={20} />} title="No articles match" action={<Button variant="primary" onClick={() => setCreating(true)}>Write the first one</Button>} /></Card> : null}
 					{list.map((a) => { const author = memberById(a.authorId); return (
 						<Link key={a.id} to="/$org/kb/$slug" params={{ org: org.slug, slug: a.slug }} className="card block p-4 hover:border-border-strong">
 							<div className="flex flex-wrap items-center gap-2 text-xs text-t2"><span className="rounded-[6px] bg-muted px-2 py-0.5 font-medium text-t1">{a.category}</span>{a.visibility === 'public' ? <Pill tone="done"><Globe size={10} /> Public</Pill> : <Pill tone="closed"><Lock size={10} /> Internal</Pill>}{a.status === 'Draft' ? <Pill tone="open">Draft</Pill> : null}<span className="ms-auto">{a.readMin} min read · {a.views} views</span></div>
 							<b className="mt-2 block text-[15px]">{a.title}</b>
 							<p className="mt-1 text-[13px] text-t2">{a.summary}</p>
-							<div className="mt-2.5 flex flex-wrap items-center gap-1.5">{a.tags.map((t) => <LabelChip key={t}>{t}</LabelChip>)}<span className="ms-auto flex items-center gap-1.5 text-xs text-t2">{author ? <Avatar name={author.name} tint={author.tint} size="xs" /> : null}{author?.name.split(' ')[0]} · updated {relativeTime(a.updatedAt, now)}</span></div>
+							<div className="mt-2.5 flex flex-wrap items-center gap-1.5">{a.tags.map((t) => <LabelChip key={t}>{t}</LabelChip>)}<span className="ms-auto flex items-center gap-1.5 text-xs text-t2">{author ? <Avatar name={author.name} tint={author.tint} src={author.avatarUrl} size="xs" /> : null}{author?.name.split(' ')[0]} · updated {relativeTime(a.updatedAt, now)}</span></div>
 						</Link>
 					); })}
 				</div>
@@ -97,18 +123,21 @@ export function KbArticlePage() {
 	const org = useAuthStore((s) => s.org)!;
 	const { slug } = useParams({ from: '/authed/$org/kb/$slug' });
 	const navigate = useNavigate();
-	const kb = useDb((s) => s.kb);
-	const article = kb.find((a) => a.slug === slug);
-	const voteArticle = useDb((s) => s.voteArticle);
+	const { articles: kb } = useKbList(org.slug);
+	// The list has no bodies; the article endpoint does (and counts the view).
+	const { article: full, loading, error } = useKbArticle(org.slug, slug);
+	const article = full ?? kb.find((a) => a.slug === slug);
+	const kbActions = useKbActions(org.slug);
 	const viewArticle = useDb((s) => s.viewArticle);
-	const updateArticle = useDb((s) => s.updateArticle);
-	const deleteArticle = useDb((s) => s.deleteArticle);
 	const now = useNow(60_000);
 	const [editing, setEditing] = useState(false);
 	const [voted, setVoted] = useState<'up' | 'down'>();
 	const [viewedSlug, setViewedSlug] = useState<string>();
-	if (article && viewedSlug !== article.slug) { setViewedSlug(article.slug); setTimeout(() => viewArticle(article.id), 0); }
+	// The live API counts the view itself when the article is read.
+	if (article && !isLiveApi() && viewedSlug !== article.slug) { setViewedSlug(article.slug); setTimeout(() => viewArticle(article.id), 0); }
 
+	if (!article && loading) return <AppShell meta={{ title: 'Knowledge base' }}><Card><EmptyState title="Loading article…" /></Card></AppShell>;
+	if (!article && error && !(error instanceof ApiError && error.status === 404)) return <AppShell meta={{ title: 'Knowledge base' }}><Card><EmptyState title="Could not load this article" action={<Link to="/$org/kb" params={{ org: org.slug }} search={{}}><Button variant="primary">Back to knowledge base</Button></Link>}>{error instanceof Error ? error.message : 'Something went wrong.'}</EmptyState></Card></AppShell>;
 	if (!article) return <AppShell meta={{ title: 'Article not found' }}><Card><EmptyState title="That article doesn't exist" action={<Link to="/$org/kb" params={{ org: org.slug }} search={{}}><Button variant="primary">Back to knowledge base</Button></Link>} /></Card></AppShell>;
 	const author = memberById(article.authorId);
 	const related = kb.filter((a) => a.id !== article.id && a.status === 'Published' && (a.category === article.category || a.tags.some((t) => article.tags.includes(t)))).slice(0, 4);
@@ -120,11 +149,11 @@ export function KbArticlePage() {
 					<div className="flex flex-wrap items-center gap-2 text-xs text-t2"><Link to="/$org/kb" params={{ org: org.slug }} search={{ category: article.category }} className="rounded-[6px] bg-muted px-2 py-0.5 font-medium text-t1 hover:underline">{article.category}</Link>{article.visibility === 'public' ? <Pill tone="done"><Globe size={10} /> Public</Pill> : <Pill tone="closed"><Lock size={10} /> Internal</Pill>}{article.status === 'Draft' ? <Pill tone="open">Draft</Pill> : null}<span className="ms-auto flex items-center gap-1"><Eye size={12} /> {article.views} · {article.readMin} min read</span></div>
 					<h2 className="mt-3 text-2xl font-semibold">{article.title}</h2>
 					<p className="mt-1.5 text-[15px] text-t2">{article.summary}</p>
-					<div className="mt-3 flex items-center gap-2 text-xs text-t2">{author ? <Avatar name={author.name} tint={author.tint} size="sm" /> : null}{author?.name} · updated {relativeTime(article.updatedAt, now)}<span className="ms-auto flex gap-1.5"><Button size="sm" onClick={() => setEditing(true)}><Pencil size={13} aria-hidden /> Edit</Button><Button size="sm" onClick={() => { updateArticle(article.id, { status: article.status === 'Draft' ? 'Published' : 'Draft' }); toast(article.status === 'Draft' ? 'Published' : 'Moved to drafts', { tone: 'success' }); }}>{article.status === 'Draft' ? 'Publish' : 'Unpublish'}</Button><Button size="sm" variant="ghost" onClick={() => { if (window.confirm('Delete this article?')) { deleteArticle(article.id); navigate({ to: '/$org/kb', params: { org: org.slug }, search: {} }); } }} aria-label="Delete"><Trash2 size={13} /></Button></span></div>
+					<div className="mt-3 flex items-center gap-2 text-xs text-t2">{author ? <Avatar name={author.name} tint={author.tint} src={author.avatarUrl} size="sm" /> : null}{author?.name} · updated {relativeTime(article.updatedAt, now)}<span className="ms-auto flex gap-1.5"><Button size="sm" onClick={() => setEditing(true)}><Pencil size={13} aria-hidden /> Edit</Button><Button size="sm" onClick={() => { const publishing = article.status === 'Draft'; void kbActions.update(article.slug, { status: publishing ? 'Published' : 'Draft' }).then((ok) => ok && toast(publishing ? 'Published' : 'Moved to drafts', { tone: 'success' })); }}>{article.status === 'Draft' ? 'Publish' : 'Unpublish'}</Button><Button size="sm" variant="ghost" onClick={() => { if (window.confirm('Delete this article?')) { void kbActions.remove(article.slug).then((ok) => { if (ok) void navigate({ to: '/$org/kb', params: { org: org.slug }, search: {} }); }); } }} aria-label="Delete"><Trash2 size={13} /></Button></span></div>
 					<hr className="my-5 border-border" />
 					<RichText text={article.body} className="text-[15px] leading-7 [&_p]:whitespace-pre-line" />
 					<div className="mt-6 flex flex-wrap gap-1.5">{article.tags.map((t) => <LabelChip key={t}>{t}</LabelChip>)}</div>
-					<div className="mt-8 flex flex-wrap items-center gap-3 rounded-[10px] bg-muted px-4 py-3 text-[13px]"><span>Was this helpful?</span><Button size="sm" variant={voted === 'up' ? 'primary' : 'secondary'} onClick={() => { if (!voted) { voteArticle(article.id, true); setVoted('up'); } }}><ThumbsUp size={13} aria-hidden /> Yes · {article.helpful}</Button><Button size="sm" variant={voted === 'down' ? 'primary' : 'secondary'} onClick={() => { if (!voted) { voteArticle(article.id, false); setVoted('down'); } }}><ThumbsDown size={13} aria-hidden /> No · {article.notHelpful}</Button>{voted ? <span className="text-xs text-t2">Thanks for the feedback.</span> : null}</div>
+					<div className="mt-8 flex flex-wrap items-center gap-3 rounded-[10px] bg-muted px-4 py-3 text-[13px]"><span>Was this helpful?</span><Button size="sm" variant={voted === 'up' ? 'primary' : 'secondary'} onClick={() => { if (!voted) { setVoted('up'); void kbActions.vote(article.slug, true).then((ok) => { if (!ok) setVoted(undefined); }); } }}><ThumbsUp size={13} aria-hidden /> Yes · {article.helpful}</Button><Button size="sm" variant={voted === 'down' ? 'primary' : 'secondary'} onClick={() => { if (!voted) { setVoted('down'); void kbActions.vote(article.slug, false).then((ok) => { if (!ok) setVoted(undefined); }); } }}><ThumbsDown size={13} aria-hidden /> No · {article.notHelpful}</Button>{voted ? <span className="text-xs text-t2">Thanks for the feedback.</span> : null}</div>
 				</Card>
 				<div className="space-y-4">
 					<Card className="p-5"><CardHeader title="Related articles" /><ul className="mt-2 space-y-2 text-[13px]">{related.length === 0 ? <li className="text-t3">Nothing related yet.</li> : related.map((a) => <li key={a.id}><Link to="/$org/kb/$slug" params={{ org: org.slug, slug: a.slug }} className="flex items-start gap-2 hover:underline"><BookOpen size={14} className="mt-0.5 shrink-0 text-t3" aria-hidden /><span className="min-w-0 flex-1">{a.title}<span className="block text-xs text-t2">{a.category} · {a.readMin} min</span></span></Link></li>)}</ul></Card>

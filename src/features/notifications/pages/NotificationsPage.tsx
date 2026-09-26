@@ -7,6 +7,9 @@ import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { useNow } from '@/shared/lib/time';
 import { unreadCount, useDb } from '@/mocks/db';
+import { isLiveApi } from '@/shared/lib/live-api';
+import { useTopicPrefs, type PrefTopic } from '../api';
+import { useNotificationActions, useNotificationList } from '../hooks/useNotificationList';
 import { toast } from '@/shared/lib/toast-store';
 import type { Notification, NotificationPrefs } from '@/mocks/types';
 import { NotificationRow } from '../components/NotificationItem';
@@ -53,13 +56,32 @@ export function NotificationsPage() {
 	const org = useAuthStore((s) => s.org)!;
 	const navigate = useNavigate();
 	const { filter } = useSearch({ from: '/authed/$org/notifications' });
-	const notifications = useDb((s) => s.notifications);
-	const prefs = useDb((s) => s.prefs);
-	const setPrefs = useDb((s) => s.setPrefs);
-	const markAllRead = useDb((s) => s.markAllRead);
+	const live = isLiveApi();
+	const mockPrefs = useDb((s) => s.prefs);
+	const setMockPrefs = useDb((s) => s.setPrefs);
+
+	// Always the unfiltered inbox (the bell shares its cache entry), filtered
+	// here, so every tab's count is right rather than only the open one's.
+	const { items: notifications, unread: liveUnread } = useNotificationList(org.slug, 'all');
+	const { markAllRead } = useNotificationActions();
+	const livePrefs = useTopicPrefs(live ? org.slug : '');
+
+	// Live, the API holds the switches it can honour; push and quiet hours are
+	// browser/UI concerns with no server counterpart, so they stay local.
+	const prefs = live ? { ...mockPrefs, ...livePrefs.topics } : mockPrefs;
+	const setPrefs = (patch: Partial<NotificationPrefs>) => {
+		if (!live) return setMockPrefs(patch);
+		const server: PrefTopic[] = ['mentions', 'assignments', 'sla', 'statusChanges', 'automationDigest'];
+		const local: Partial<NotificationPrefs> = {};
+		for (const [key, value] of Object.entries(patch) as [keyof NotificationPrefs, boolean][]) {
+			if (server.includes(key as PrefTopic)) livePrefs.set(key as PrefTopic, value);
+			else Object.assign(local, { [key]: value });
+		}
+		if (Object.keys(local).length) setMockPrefs(local);
+	};
 	const now = useNow(30_000);
 	const prefsRef = useRef<HTMLDivElement>(null);
-	const unread = unreadCount(notifications);
+	const unread = live ? (liveUnread ?? 0) : unreadCount(notifications);
 	const mentions = notifications.filter((n) => n.kind === 'mention' && !n.read).length;
 
 	const setFilter = (f: Filter) => navigate({ to: '/$org/notifications', params: { org: org.slug }, search: { filter: f }, replace: true });
@@ -93,14 +115,14 @@ export function NotificationsPage() {
 			meta={{ title: 'Notifications', subtitle: `${unread} unread · ${mentions} mentions` }}
 			mobileHeader={
 				<MobileHeader>
-					<div className="flex items-center justify-between"><h1 className="text-xl font-semibold">Inbox</h1><button type="button" onClick={markAllRead} className="text-[13px] text-on-dark-muted">Mark all read</button></div>
+					<div className="flex items-center justify-between"><h1 className="text-xl font-semibold">Inbox</h1><button type="button" onClick={() => markAllRead()} className="text-[13px] text-on-dark-muted">Mark all read</button></div>
 					<DarkChips items={tabs.map((t) => ({ ...t, label: t.key === 'assigned' ? 'Assigned' : t.key === 'sla' ? 'SLA' : t.label }))} value={filter} onChange={setFilter} className="mt-3" />
 				</MobileHeader>
 			}
 		>
 			<div className="hidden flex-wrap items-center gap-3 lg:flex">
 				<PillTabs items={tabs} value={filter} onChange={setFilter} className="min-w-0 flex-1" ariaLabel="Notification filter" />
-				<Button onClick={markAllRead} disabled={!unread}><CheckCheck size={15} aria-hidden /> Mark all read</Button>
+				<Button onClick={() => markAllRead()} disabled={!unread}><CheckCheck size={15} aria-hidden /> Mark all read</Button>
 				<Button iconOnly aria-label="Notification settings" onClick={() => prefsRef.current?.scrollIntoView({ behavior: 'smooth' })}><Settings size={15} /></Button>
 			</div>
 
@@ -121,7 +143,7 @@ export function NotificationsPage() {
 					<Card className="p-5">
 						<h3 className="text-sm font-semibold">Delivery preferences</h3>
 						<ul className="mt-2 divide-y divide-border">
-							{prefRows.map((r) => (
+							{prefRows.filter((r) => !live || r.key !== 'sprintEvents').map((r) => (
 								<li key={r.key} className="flex items-center gap-3 py-3 text-[13px]"><div className="flex-1"><b className="block font-medium">{r.label}</b><span className="text-xs text-t2">{r.sub}</span></div><Toggle on={prefs[r.key]} onChange={(v) => setPrefs({ [r.key]: v })} label={r.label} /></li>
 							))}
 						</ul>
@@ -131,10 +153,13 @@ export function NotificationsPage() {
 						<p className="mt-1.5 text-[13px] text-t2">Get SLA alerts and mentions even when this tab is in the background.</p>
 						{prefs.push ? <p className="mt-3 text-[13px] text-success-fg">Push is enabled on this browser.</p> : <Button variant="primary" className="mt-3" onClick={enablePush}>Enable push</Button>}
 					</Card>
+					{/* Quiet hours and sprint events have no server counterpart yet, so live there is nothing to save them to. */}
+					{live ? null : (
 					<Card className="p-5">
-						<div className="flex items-center justify-between"><div className="flex items-center gap-2 text-sm font-semibold"><Sun size={16} className="text-warning" aria-hidden /> Quiet hours</div><Toggle on={prefs.quietHours} onChange={(v) => setPrefs({ quietHours: v })} label="Quiet hours" /></div>
-						<p className="mt-1.5 text-[13px] text-t2">22:00 – 07:00 West Africa Time · SLA alerts still delivered</p>
-					</Card>
+							<div className="flex items-center justify-between"><div className="flex items-center gap-2 text-sm font-semibold"><Sun size={16} className="text-warning" aria-hidden /> Quiet hours</div><Toggle on={prefs.quietHours} onChange={(v) => setPrefs({ quietHours: v })} label="Quiet hours" /></div>
+							<p className="mt-1.5 text-[13px] text-t2">22:00 – 07:00 West Africa Time · SLA alerts still delivered</p>
+						</Card>
+					)}
 				</div>
 			</div>
 		</AppShell>

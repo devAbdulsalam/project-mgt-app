@@ -1,9 +1,9 @@
-import { Link } from '@tanstack/react-router';
 import { Check } from 'lucide-react';
 import { plans } from '@/mocks/data';
 import { cn } from '@/shared/lib/cn';
 import { Reveal } from './Reveal';
 import { SectionHeader } from './Section';
+import { AuthLink } from './AuthLink';
 
 const features: Record<string, string[]> = {
 	starter: ['Unlimited tickets and clients', 'Client portal and knowledge base', 'Email and portal intake', 'Basic reports'],
@@ -38,9 +38,9 @@ export function Pricing() {
 								</li>
 							))}
 						</ul>
-						<Link to="/signup" className={cn('btn-pill mt-6 h-11 text-[13px]', p.popular ? 'bg-white text-brand-900 hover:bg-brand-100' : 'btn-pill-dark')}>
+						<AuthLink to="signup" signedInLabel="Open dashboard" className={cn('btn-pill mt-6 h-11 text-[13px]', p.popular ? 'bg-white text-brand-900 hover:bg-brand-100' : 'btn-pill-dark')}>
 							{p.id === 'enterprise' ? 'Talk to sales' : 'Start free trial'}
-						</Link>
+						</AuthLink>
 					</Reveal>
 				))}
 			</ul>

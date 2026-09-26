@@ -2,20 +2,21 @@ import { useMemo, useState } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { Archive, ArchiveRestore, LayoutGrid, List, MoreVertical, Plus, Search, Settings, Star, Users } from 'lucide-react';
 import { AppShell, MobileHeader } from '@/shared/layouts/AppShell';
-import { Avatar, Button, Card, EmptyState, Menu, Pill } from '@/shared/ui';
+import { Avatar, Button, Card, EmptyState, Menu, Pill, SortControl } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { relativeTime, useNow } from '@/shared/lib/time';
-import { memberById, useDb } from '@/mocks/db';
+import { memberById } from '@/mocks/db';
 import { toast } from '@/shared/lib/toast-store';
 import type { Project } from '@/mocks/types';
 import { NewProjectDialog } from '../components/NewProjectDialog';
 import { useProjectStats } from '../hooks';
+import { useProjectList } from '../hooks/useProjectList';
+import { useProjectActions } from '../hooks/useProjectActions';
 import type { ProjectsSearch } from '../model';
 
 function ProjectCard({ p, orgSlug, now }: { p: Project; orgSlug: string; now: number }) {
-	const toggleStar = useDb((s) => s.toggleStar);
-	const archive = useDb((s) => s.archiveProject);
+	const actions = useProjectActions(orgSlug);
 	const stats = useProjectStats(p);
 	const lead = memberById(p.leadId);
 	const progress = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
@@ -30,7 +31,7 @@ function ProjectCard({ p, orgSlug, now }: { p: Project; orgSlug: string; now: nu
 						<Link to="/$org/projects/$projectKey/overview" params={{ org: orgSlug, projectKey: p.key }} className="truncate text-[15px] font-semibold hover:underline">
 							{p.name}
 						</Link>
-						<button type="button" onClick={() => toggleStar(p.id)} className={cn('shrink-0', p.starred ? 'text-warning' : 'text-border-strong hover:text-warning')} aria-label={p.starred ? 'Unstar' : 'Star'} aria-pressed={p.starred}>
+						<button type="button" onClick={() => void actions.toggleStar(p)} className={cn('shrink-0', p.starred ? 'text-warning' : 'text-border-strong hover:text-warning')} aria-label={p.starred ? 'Unstar' : 'Star'} aria-pressed={p.starred}>
 							<Star size={15} fill={p.starred ? 'currentColor' : 'none'} />
 						</button>
 					</div>
@@ -48,9 +49,9 @@ function ProjectCard({ p, orgSlug, now }: { p: Project; orgSlug: string; now: nu
 						</button>
 					)}
 					items={[
-						{ key: 'star', label: p.starred ? 'Remove from favourites' : 'Add to favourites', icon: <Star size={14} />, onSelect: () => toggleStar(p.id) },
+						{ key: 'star', label: p.starred ? 'Remove from favourites' : 'Add to favourites', icon: <Star size={14} />, onSelect: () => void actions.toggleStar(p) },
 						{ key: 'settings', label: <Link to="/$org/projects/$projectKey/settings" params={{ org: orgSlug, projectKey: p.key }}>Project settings</Link>, icon: <Settings size={14} /> },
-						{ key: 'archive', label: p.archived ? 'Restore project' : 'Archive project', icon: p.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />, danger: !p.archived, onSelect: () => { archive(p.id, !p.archived); toast(p.archived ? `${p.name} restored` : `${p.name} archived`); } },
+						{ key: 'archive', label: p.archived ? 'Restore project' : 'Archive project', icon: p.archived ? <ArchiveRestore size={14} /> : <Archive size={14} />, danger: !p.archived, onSelect: () => { void actions.setArchived(p, !p.archived).then(() => toast(p.archived ? `${p.name} restored` : `${p.name} archived`)); } },
 					]}
 				/>
 			</div>
@@ -66,7 +67,7 @@ function ProjectCard({ p, orgSlug, now }: { p: Project; orgSlug: string; now: nu
 			<div className="mt-4 flex items-center gap-2 border-t border-border pt-3 text-xs text-t2">
 				{lead ? (
 					<>
-						<Avatar name={lead.name} tint={lead.tint} size="sm" /> Lead · {lead.name}
+						<Avatar name={lead.name} tint={lead.tint} src={lead.avatarUrl} size="sm" /> Lead · {lead.name}
 					</>
 				) : null}
 				<span className="ms-auto flex items-center gap-1">
@@ -77,12 +78,37 @@ function ProjectCard({ p, orgSlug, now }: { p: Project; orgSlug: string; now: nu
 	);
 }
 
+/**
+ * Orders projects. With no sort chosen, favourites come first and the rest by
+ * name; choosing a sort is an explicit request for that order, so favourites
+ * stop jumping the queue. Ties always fall back to name.
+ */
+function projectComparator(sort: ProjectsSearch['sort'], dir: ProjectsSearch['dir']) {
+	const byName = (a: Project, b: Project) => a.name.localeCompare(b.name);
+	if (!sort) return (a: Project, b: Project) => Number(b.starred) - Number(a.starred) || byName(a, b);
+
+	const sign = dir === 'asc' ? 1 : -1;
+	const key: Record<NonNullable<typeof sort>, (a: Project, b: Project) => number> = {
+		name: byName,
+		date: (a, b) => a.createdAt - b.createdAt,
+		type: (a, b) => a.kind.localeCompare(b.kind),
+		// Projects with no lead sort last either way round.
+		lead: (a, b) => {
+			const an = memberById(a.leadId)?.name;
+			const bn = memberById(b.leadId)?.name;
+			if (!an || !bn) return an ? -sign : bn ? sign : 0;
+			return an.localeCompare(bn);
+		},
+	};
+	return (a: Project, b: Project) => sign * key[sort](a, b) || byName(a, b);
+}
+
 export function ProjectsPage() {
 	const org = useAuthStore((s) => s.org)!;
 	const navigate = useNavigate();
 	const search = useSearch({ from: '/authed/$org/projects' });
-	const projects = useDb((s) => s.projects);
-	const toggleStar = useDb((s) => s.toggleStar);
+	const { projects } = useProjectList(org.slug);
+	const projectActions = useProjectActions(org.slug);
 	const now = useNow(60_000);
 	const [creating, setCreating] = useState(false);
 	const setSearch = (patch: Partial<ProjectsSearch>) => navigate({ to: '/$org/projects', params: { org: org.slug }, search: { ...search, ...patch }, replace: true });
@@ -92,8 +118,8 @@ export function ProjectsPage() {
 			projects
 				.filter((p) => (search.archived ? true : !p.archived))
 				.filter((p) => !search.q || `${p.name} ${p.key} ${p.description}`.toLowerCase().includes(search.q.toLowerCase()))
-				.sort((a, b) => Number(b.starred) - Number(a.starred) || a.name.localeCompare(b.name)),
-		[projects, search.archived, search.q],
+				.sort(projectComparator(search.sort, search.dir)),
+		[projects, search.archived, search.q, search.sort, search.dir],
 	);
 
 	return (
@@ -113,6 +139,12 @@ export function ProjectsPage() {
 					<Search size={14} className="text-t2" aria-hidden />
 					<input value={search.q ?? ''} onChange={(e) => setSearch({ q: e.target.value || undefined })} placeholder="Search projects" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-t3" aria-label="Search projects" />
 				</label>
+				<SortControl
+					value={search.sort ?? 'name'}
+					dir={search.dir}
+					options={[{ value: 'name', label: 'Project name' }, { value: 'date', label: 'Date created' }, { value: 'type', label: 'Type' }, { value: 'lead', label: 'Lead' }]}
+					onChange={({ sort, dir }) => setSearch({ ...(sort ? { sort } : {}), ...(dir ? { dir } : {}) })}
+				/>
 				<label className="flex items-center gap-2 text-[13px] text-t2"><input type="checkbox" className="accent-brand-900" checked={!!search.archived} onChange={(e) => setSearch({ archived: e.target.checked || undefined })} /> Show archived</label>
 				<div className="ms-auto flex items-center gap-2">
 					<div className="hidden items-center rounded-sm border border-border-strong bg-white sm:flex" role="group" aria-label="View">
@@ -131,7 +163,7 @@ export function ProjectsPage() {
 						<thead><tr className="bg-muted text-left text-[11px] font-semibold tracking-wider text-t2 uppercase"><th className="px-4 py-3">Project</th><th className="px-4 py-3">Type</th><th className="px-4 py-3">Lead</th><th className="px-4 py-3">Open</th><th className="px-4 py-3">Members</th><th className="px-4 py-3">Sprint</th><th className="w-10" /></tr></thead>
 						<tbody>
 							{list.map((p) => (
-								<ProjectRow key={p.id} p={p} orgSlug={org.slug} onStar={() => toggleStar(p.id)} />
+								<ProjectRow key={p.id} p={p} orgSlug={org.slug} onStar={() => void projectActions.toggleStar(p)} />
 							))}
 						</tbody>
 					</table>
@@ -161,7 +193,7 @@ function ProjectRow({ p, orgSlug, onStar }: { p: Project; orgSlug: string; onSta
 				</Link>
 			</td>
 			<td className="px-4 py-3 text-t2">{p.kind === 'software' ? 'Software' : 'Service'}</td>
-			<td className="px-4 py-3">{lead ? <span className="flex items-center gap-2"><Avatar name={lead.name} tint={lead.tint} size="sm" />{lead.name}</span> : '—'}</td>
+			<td className="px-4 py-3">{lead ? <span className="flex items-center gap-2"><Avatar name={lead.name} tint={lead.tint} src={lead.avatarUrl} size="sm" />{lead.name}</span> : '—'}</td>
 			<td className="tabular px-4 py-3">{stats.open}</td>
 			<td className="px-4 py-3 text-t2">{p.memberIds.length}</td>
 			<td className="px-4 py-3 text-t2">{p.sprint ? `${p.sprint.name} · ${p.sprint.daysLeft}d left` : '—'}</td>

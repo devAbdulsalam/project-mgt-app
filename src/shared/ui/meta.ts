@@ -1,6 +1,7 @@
 import { Mail, MessageSquare, Phone, LayoutGrid, Wrench, Bug, CheckSquare, Bookmark, Zap, CornerDownRight, LifeBuoy } from 'lucide-react';
 import type { Channel, Priority, Status, TicketType } from '@/mocks/types';
 import type { PillTone } from './Pill';
+import type { Tint } from './Avatar';
 
 export const statusTone: Record<Status, PillTone> = {
 	New: 'new',
@@ -34,4 +35,14 @@ export const typeMeta: Record<TicketType, { label: string; color: string; icon: 
 	epic: { label: 'Epic', color: 'bg-purple-fg', icon: Zap },
 	subtask: { label: 'Sub-task', color: 'bg-brand-600', icon: CornerDownRight },
 	support: { label: 'Support request', color: 'bg-warning', icon: LifeBuoy },
+};
+
+/* Tailwind needs literal class names, so ring colours per avatar tint live here. */
+export const tintRings: Record<Tint, string> = {
+	teal: 'ring-brand-100',
+	tan: 'ring-tan-bg',
+	green: 'ring-green-bg',
+	lavender: 'ring-lavender-bg',
+	grey: 'ring-grey-bg',
+	dark: 'ring-brand-800',
 };

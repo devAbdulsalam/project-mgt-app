@@ -1,21 +1,25 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router';
 import { CalendarDays, ChevronLeft, FileText, Mail, MessageSquare, Phone, Plus, HelpCircle } from 'lucide-react';
 import { AppShell, MobileHeader } from '@/shared/layouts/AppShell';
 import { Avatar, Button, Card, CardHeader, EmptyState, Field, Input, LineTabs, Pill, PriorityPill, ProgressBar, StatTile, StatusPill, Textarea } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
 import { useAuthStore } from '@/shared/lib/auth-store';
-import { formatNaira, formatNairaShort, memberById, useDb } from '@/mocks/db';
+import { formatNaira, formatNairaShort, memberById } from '@/mocks/db';
 import { statusCategory } from '@/mocks/seed';
 import { toast } from '@/shared/lib/toast-store';
 import { relativeTime, useNow } from '@/shared/lib/time';
 import { TicketDetail } from '@/features/tickets/components/TicketDetail';
 import { CreateTicketDialog } from '@/features/tickets/components/CreateTicketDialog';
 import { SlaCountdown } from '@/features/tickets/components/TicketBits';
+import { useAssetList } from '@/features/assets/hooks';
+import { useVisitList } from '@/features/visits/api';
+import { useClientActions, useClientDetail } from '../api';
 import { planTone, type ClientDetailSearch, type ClientTab } from '../model';
 import { AddContactDialog, AddSiteDialog, NoteComposer } from '../components/ClientDialogs';
 
-const fmtDate = (ts: number) => new Date(ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+// 0 means the date is not set (live data), not 1 Jan 1970.
+const fmtDate = (ts: number) => (ts ? new Date(ts).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 const channelIcon = { whatsapp: MessageSquare, email: Mail, phone: Phone };
 
 export function ClientDetailPage() {
@@ -23,22 +27,25 @@ export function ClientDetailPage() {
 	const { clientId } = useParams({ from: '/authed/$org/customers/$clientId' });
 	const search = useSearch({ from: '/authed/$org/customers/$clientId' });
 	const navigate = useNavigate();
-	const client = useDb((s) => s.clientAccounts.find((c) => c.id === clientId));
-	const allTickets = useDb((s) => s.tickets);
-	const allAssets = useDb((s) => s.assets);
-	const allVisits = useDb((s) => s.visits);
-	const updateClient = useDb((s) => s.updateClient);
-	const setInvoiceStatus = useDb((s) => s.setInvoiceStatus);
+	const { client, tickets, contractId, loading, error, sectionError, refetch } = useClientDetail(org.slug, clientId);
+	const { assets } = useAssetList(org.slug, { client_id: clientId });
+	const { visits } = useVisitList(org.slug, { client_id: clientId });
+	const { saveContract, setInvoiceStatus } = useClientActions(org.slug);
 	const now = useNow(60_000);
 	const [creating, setCreating] = useState(false);
 	const [siteDialog, setSiteDialog] = useState(false);
 	const [contactDialog, setContactDialog] = useState(false);
 	const [editContract, setEditContract] = useState(false);
 
-	const tickets = useMemo(() => allTickets.filter((t) => t.clientId === clientId).sort((a, b) => b.updatedAt - a.updatedAt), [allTickets, clientId]);
-	const assets = useMemo(() => allAssets.filter((a) => a.clientId === clientId), [allAssets, clientId]);
-	const visits = useMemo(() => allVisits.filter((v) => v.clientId === clientId), [allVisits, clientId]);
 	const setSearch = (patch: Partial<ClientDetailSearch>) => navigate({ to: '/$org/customers/$clientId', params: { org: org.slug, clientId }, search: { ...search, ...patch }, replace: true });
+
+	if (loading) {
+		return <AppShell meta={{ title: 'Client' }}><Card><EmptyState title="Loading client…" /></Card></AppShell>;
+	}
+
+	if (error) {
+		return <AppShell meta={{ title: 'Client' }}><Card><EmptyState title="Could not load this client" action={<Button variant="primary" onClick={refetch}>Try again</Button>}>{error instanceof Error ? error.message : 'Something went wrong.'}</EmptyState></Card></AppShell>;
+	}
 
 	if (!client) {
 		return (
@@ -52,6 +59,7 @@ export function ClientDetailPage() {
 	const outstanding = client.invoices.filter((i) => i.status === 'Overdue' || i.status === 'Due').reduce((s, i) => s + i.amount, 0);
 	const overdue = client.invoices.find((i) => i.status === 'Overdue');
 	const renewDays = Math.round((client.renewalAt - now) / 86_400_000);
+	const renewing = client.renewalAt > 0 && renewDays < 90;
 	const tabs: { key: ClientTab; label: string; count?: number }[] = [
 		{ key: 'overview', label: 'Overview' }, { key: 'tickets', label: 'Tickets', count: open.length }, { key: 'sites', label: 'Sites & contacts' }, { key: 'assets', label: 'Assets', count: assets.length }, { key: 'contract', label: 'Contract & SLA' }, { key: 'invoices', label: 'Invoices' }, { key: 'visits', label: 'Visits', count: visits.length }, { key: 'notes', label: 'Notes', count: client.notes.length },
 	];
@@ -75,6 +83,7 @@ export function ClientDetailPage() {
 	return (
 		<AppShell meta={{ title: client.name, subtitle: `Clients › ${client.industry} · ${client.city}` }} mobileHeader={<MobileHeader className={search.panel ? 'hidden' : undefined}><Link to="/$org/customers" params={{ org: org.slug }} search={{}} className="flex items-center gap-1 text-[13px] text-on-dark-muted"><ChevronLeft size={16} /> Clients</Link><h1 className="mt-1 text-xl font-semibold">{client.name}</h1><p className="text-xs text-on-dark-muted">{client.contract.plan} · {open.length} open · {client.city}</p></MobileHeader>}>
 			<div className="hidden lg:block">{header}</div>
+			{sectionError ? <div role="alert" className="mt-4 flex items-center gap-3 rounded-sm bg-danger-bg px-4 py-2.5 text-[13px] text-danger-fg">Some of this client's details did not load, so they may look empty.<Button size="sm" onClick={refetch}>Try again</Button></div> : null}
 			<LineTabs items={tabs} value={search.tab} onChange={(tab) => setSearch({ tab })} className="mt-5" ariaLabel="Client sections" />
 
 			{search.tab === 'overview' ? (
@@ -90,7 +99,7 @@ export function ClientDetailPage() {
 						<Card className="p-5">
 							<CardHeader title="Contract & SLA" action={<button type="button" className="text-[13px] text-brand-600 hover:underline" onClick={() => setSearch({ tab: 'contract' })}>Edit</button>} />
 							<dl className="mt-2 divide-y divide-border text-[13px]">
-								{[['Plan', <b key="p">{client.contract.plan}</b>], ['Term', <span key="t">{fmtDate(client.contract.termStart)} – {fmtDate(client.contract.termEnd)} {renewDays < 90 ? <Pill tone="open" className="ms-2">Renews in {renewDays}d</Pill> : null}</span>], ['Fee', `${formatNaira(client.contract.feeMonthly)} / month · ${client.contract.hoursIncluded}h included · ${formatNaira(client.contract.overageRate)}/h overage`], ['Coverage', client.contract.coverage], ['SLA', client.contract.slaSummary], ['Scope', client.contract.scope], ['Excluded', client.contract.excluded], ['Documents', client.contract.documents.length ? client.contract.documents.map((d) => <button key={d} type="button" onClick={() => toast(`Opening ${d}`)} className="me-2 text-brand-600 hover:underline">{d}</button>) : '—']].map(([k, v]) => (
+								{[['Plan', <b key="p">{client.contract.plan}</b>], ['Term', <span key="t">{fmtDate(client.contract.termStart)} – {fmtDate(client.contract.termEnd)} {renewing ? <Pill tone="open" className="ms-2">Renews in {renewDays}d</Pill> : null}</span>], ['Fee', `${formatNaira(client.contract.feeMonthly)} / month · ${client.contract.hoursIncluded}h included · ${formatNaira(client.contract.overageRate)}/h overage`], ['Coverage', client.contract.coverage], ['SLA', client.contract.slaSummary], ['Scope', client.contract.scope], ['Excluded', client.contract.excluded], ['Documents', client.contract.documents.length ? client.contract.documents.map((d) => <button key={d} type="button" onClick={() => toast(`Opening ${d}`)} className="me-2 text-brand-600 hover:underline">{d}</button>) : '—']].map(([k, v]) => (
 									<div key={k as string} className="flex gap-4 py-2.5"><dt className="w-24 shrink-0 text-t2">{k as string}</dt><dd className="min-w-0 flex-1">{v}</dd></div>
 								))}
 							</dl>
@@ -159,7 +168,7 @@ export function ClientDetailPage() {
 			{search.tab === 'contract' ? (
 				<Card className="mt-5 p-5">
 					<CardHeader title="Contract & SLA" sub="Terms shown on the client portal and used for SLA clocks" action={editContract ? null : <Button size="sm" onClick={() => setEditContract(true)}>Edit</Button>} />
-					{editContract ? <ContractEditor client={client} onDone={() => setEditContract(false)} onSave={(patch) => { updateClient(client.id, { contract: { ...client.contract, ...patch } }); setEditContract(false); toast('Contract updated', { tone: 'success' }); }} /> : (
+					{editContract ? <ContractEditor client={client} onDone={() => setEditContract(false)} onSave={async (patch) => { if (!(await saveContract(client, contractId, { ...client.contract, ...patch }))) return; setEditContract(false); toast('Contract updated', { tone: 'success' }); }} /> : (
 						<dl className="mt-3 grid gap-x-8 gap-y-3 text-[13px] sm:grid-cols-2">
 							{[['Plan', client.contract.plan], ['Term', `${fmtDate(client.contract.termStart)} – ${fmtDate(client.contract.termEnd)}`], ['Monthly fee', formatNaira(client.contract.feeMonthly)], ['Hours included', `${client.contract.hoursIncluded}h · ${formatNaira(client.contract.overageRate)}/h overage`], ['Coverage', client.contract.coverage], ['SLA', client.contract.slaSummary], ['Scope', client.contract.scope], ['Excluded', client.contract.excluded]].map(([k, v]) => <div key={k}><dt className="text-xs text-t2">{k}</dt><dd className="mt-0.5">{v}</dd></div>)}
 						</dl>
@@ -171,7 +180,7 @@ export function ClientDetailPage() {
 				<Card className="mt-5 overflow-x-auto">
 					{client.invoices.length === 0 ? <EmptyState title="No invoices yet" /> : (
 						<table className="w-full text-[13px]"><thead><tr className="bg-muted text-left text-[11px] font-semibold tracking-wider text-t2 uppercase"><th className="px-4 py-3">Invoice</th><th className="px-4 py-3">Description</th><th className="px-4 py-3">Issued</th><th className="px-4 py-3">Due</th><th className="px-4 py-3">Amount</th><th className="px-4 py-3">Status</th><th className="px-4 py-3" /></tr></thead>
-							<tbody>{client.invoices.map((i) => <tr key={i.id} className="border-t border-border"><td className="px-4 py-3 font-mono text-xs">{i.number}</td><td className="px-4 py-3">{i.label}</td><td className="px-4 py-3 text-t2">{fmtDate(i.issuedAt)}</td><td className={cn('px-4 py-3', i.status === 'Overdue' && 'font-semibold text-high-fg')}>{fmtDate(i.dueAt)}</td><td className="tabular px-4 py-3 font-semibold">{formatNaira(i.amount)}</td><td className="px-4 py-3"><Pill tone={i.status === 'Paid' ? 'done' : i.status === 'Overdue' ? 'blocked' : 'open'}>{i.status}</Pill></td><td className="px-4 py-3 text-right">{i.status !== 'Paid' ? <span className="flex justify-end gap-2"><Button size="sm" onClick={() => toast('Reminder sent', { tone: 'success', description: `WhatsApp + email to ${client.contacts.find((k) => k.channel === 'email')?.name ?? 'finance'}` })}>Remind</Button><Button size="sm" variant="soft" onClick={() => { setInvoiceStatus(client.id, i.id, 'Paid'); toast(`${i.number} marked paid`, { tone: 'success' }); }}>Mark paid</Button></span> : <Button size="sm" variant="ghost" onClick={() => toast(`Downloading ${i.number}.pdf`)}>PDF</Button>}</td></tr>)}</tbody></table>
+							<tbody>{client.invoices.map((i) => <tr key={i.id} className="border-t border-border"><td className="px-4 py-3 font-mono text-xs">{i.number}</td><td className="px-4 py-3">{i.label}</td><td className="px-4 py-3 text-t2">{fmtDate(i.issuedAt)}</td><td className={cn('px-4 py-3', i.status === 'Overdue' && 'font-semibold text-high-fg')}>{fmtDate(i.dueAt)}</td><td className="tabular px-4 py-3 font-semibold">{formatNaira(i.amount)}</td><td className="px-4 py-3"><Pill tone={i.status === 'Paid' ? 'done' : i.status === 'Overdue' ? 'blocked' : 'open'}>{i.status}</Pill></td><td className="px-4 py-3 text-right">{i.status !== 'Paid' ? <span className="flex justify-end gap-2"><Button size="sm" onClick={() => toast('Reminder sent', { tone: 'success', description: `WhatsApp + email to ${client.contacts.find((k) => k.channel === 'email')?.name ?? 'finance'}` })}>Remind</Button><Button size="sm" variant="soft" onClick={async () => { if (await setInvoiceStatus(client.id, i.id, 'paid')) toast(`${i.number} marked paid`, { tone: 'success' }); }}>Mark paid</Button></span> : <Button size="sm" variant="ghost" onClick={() => toast(`Downloading ${i.number}.pdf`)}>PDF</Button>}</td></tr>)}</tbody></table>
 					)}
 				</Card>
 			) : null}
@@ -200,7 +209,7 @@ export function ClientDetailPage() {
 	);
 }
 
-function ContractEditor({ client, onDone, onSave }: { client: { contract: { plan: string; feeMonthly: number; hoursIncluded: number; overageRate: number; coverage: string; slaSummary: string; scope: string; excluded: string } }; onDone: () => void; onSave: (patch: Partial<typeof client.contract>) => void }) {
+function ContractEditor({ client, onDone, onSave }: { client: { contract: { plan: string; feeMonthly: number; hoursIncluded: number; overageRate: number; coverage: string; slaSummary: string; scope: string; excluded: string } }; onDone: () => void; onSave: (patch: Partial<typeof client.contract>) => void | Promise<void> }) {
 	const [c, setC] = useState(client.contract);
 	return (
 		<div className="mt-3 grid gap-4 sm:grid-cols-2">

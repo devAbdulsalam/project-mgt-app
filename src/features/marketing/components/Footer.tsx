@@ -1,7 +1,7 @@
-import { Link } from '@tanstack/react-router';
 import { Globe, Mail, MessageCircle, Play, Smartphone } from 'lucide-react';
 import { Wordmark } from '@/shared/ui';
 import { Reveal } from './Reveal';
+import { AuthLink } from './AuthLink';
 
 const columns = [
 	{ title: 'Product', links: ['Helpdesk', 'Field visits', 'Assets', 'Projects & sprints', 'Client portal'] },
@@ -97,9 +97,9 @@ export function Footer() {
 				<div className="mt-10 flex flex-col gap-3 border-t border-border pt-6 text-[12px] text-t3 sm:flex-row sm:items-center sm:justify-between">
 					<span>© 2026 Ledge Desk · NDPR compliant · SOC 2 Type II</span>
 					<div className="flex items-center gap-4">
-						<Link to="/login" search={{}} className="hover:text-t1">
+						<AuthLink to="login" className="hover:text-t1">
 							Sign in
-						</Link>
+						</AuthLink>
 						<a href="#product" className="hover:text-t1">
 							Privacy
 						</a>

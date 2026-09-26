@@ -1,8 +1,9 @@
-import { Avatar } from '@/shared/ui';
+import { Avatar, tintRings } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
 import { Reveal } from './Reveal';
 import { Parallax } from './Parallax';
 import { Tag, container } from './bits';
+import { photoOf } from '../people';
 
 const floaters = [
 	{ name: 'Amina Yusuf', tint: 'tan', pos: 'left-[4%] top-[8%]', speed: -0.10, label: { text: 'Centralise every channel', tone: 'teal', side: 'right' } },
@@ -21,7 +22,7 @@ export function Connect() {
 					<Parallax key={f.name} speed={f.speed} className={cn('absolute z-10', f.pos)}>
 						<Reveal delay={i * 90} variant="scale" className={cn('flex items-center gap-2', 'label' in f && f.label?.side === 'left' && 'flex-row-reverse')}>
 							<span className="relative">
-								<Avatar name={f.name} tint={f.tint} size="lg" className="size-12 text-sm ring-4 ring-white shadow-pop sm:size-14" />
+								<Avatar name={f.name} tint={f.tint} src={photoOf(f.name)} size="lg" className={cn('size-12 text-sm ring-4 shadow-pop sm:size-14', tintRings[f.tint])} />
 								<span className="absolute right-0.5 bottom-0.5 size-3 rounded-full border-2 border-white bg-success" />
 							</span>
 							{'label' in f && f.label ? <Tag tone={f.label.tone}>{f.label.text}</Tag> : null}

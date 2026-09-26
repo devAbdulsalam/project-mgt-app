@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { demoAccounts, orgs, users, DEMO_OTP, type Org, type User } from '@/mocks/data';
 import { sleep } from './format';
+import { isLiveApi } from './live-api';
+import * as live from '@/features/auth/live';
 
 export class AuthError extends Error {
 	field?: 'email' | 'password' | 'code';
@@ -27,25 +29,58 @@ export interface SignupDraft {
 	planId: string;
 }
 
+/**
+ * How signup ended.
+ *
+ * `org` is null when the account is real but has no workspace yet: creating one
+ * is an operator action, so a self-serve signup can reach this state and the UI
+ * has to say so rather than invent a workspace to land in.
+ */
+export interface SignupOutcome {
+	org: Org | null;
+	invites: live.InviteResult[];
+}
+
 interface AuthState {
 	status: 'anonymous' | 'authenticated';
 	user: User | null;
 	org: Org | null;
 	availableOrgs: Org[];
+	/**
+	 * What this person may do in the active workspace, as the server computed it.
+	 *
+	 * Kept here rather than derived from a role, because the server derives it
+	 * per request from the membership row — a screen that guessed from `role`
+	 * would disagree the moment the two definitions drift.
+	 */
+	permissions: string[];
 	/** Pending step-up: sign-in accepted, waiting for OTP. */
-	pendingLogin: { userId: string; orgId: string; phone: string; remember: boolean } | null;
+	pendingLogin: { userId: string; orgId: string; phone: string; remember: boolean; email?: string } | null;
 	signup: SignupDraft;
 
 	login: (input: { email: string; password: string; remember: boolean }) => Promise<{ requiresOtp: boolean; phone: string }>;
 	verifyOtp: (code: string) => Promise<Org>;
 	resendOtp: () => Promise<void>;
+	/** Replaces the session after a live restore on page load. */
+	hydrate: (session: { user: User; org: Org; orgs: Org[]; permissions?: string[] }) => void;
 	switchOrg: (orgId: string) => void;
 	updateUser: (patch: Partial<User>) => void;
 	logout: () => void;
 
 	updateSignup: (patch: Partial<SignupDraft>) => void;
-	verifySignupOtp: (code: string) => Promise<void>;
-	completeSignup: () => Promise<Org>;
+	/**
+	 * Creates the account behind the signup draft.
+	 *
+	 * The password is an argument rather than part of the draft: the draft is
+	 * persisted to sessionStorage so the wizard survives a reload, and a
+	 * password has no business being written there.
+	 */
+	registerAccount: (password: string) => Promise<void>;
+	/** Sends a fresh confirmation code to the address on the signup draft. */
+	resendSignupCode: () => Promise<void>;
+	/** Confirms the address. Resolves with the workspace the account already belongs to, if any. */
+	verifySignupOtp: (code: string) => Promise<Org | null>;
+	completeSignup: (invites?: { email: string; role: string }[]) => Promise<SignupOutcome>;
 	resetSignup: () => void;
 }
 
@@ -73,10 +108,24 @@ export const useAuthStore = create<AuthState>()(
 			user: null,
 			org: null,
 			availableOrgs: [],
+			permissions: [],
 			pendingLogin: null,
 			signup: emptySignup,
 
 			async login({ email, password, remember }) {
+				if (isLiveApi()) {
+					try {
+						const { phone } = await live.login(email.trim(), password);
+						// The real identity is not known until the code is verified;
+						// only the email is needed to carry to the next screen.
+						set({ pendingLogin: { userId: '', orgId: '', phone, remember, email: email.trim() } });
+						return { requiresOtp: true, phone };
+					} catch (err) {
+						const { message, field } = live.messageFor(err, 'We could not sign you in.');
+						throw new AuthError(message, field);
+					}
+				}
+
 				await sleep(LATENCY);
 				const account = demoAccounts.find((a) => a.email.toLowerCase() === email.trim().toLowerCase());
 				if (!account) throw new AuthError('We could not find an account with that email.', 'email');
@@ -86,6 +135,21 @@ export const useAuthStore = create<AuthState>()(
 			},
 
 			async verifyOtp(code) {
+				if (isLiveApi()) {
+					const pending = get().pendingLogin;
+					if (!pending?.email) throw new AuthError('Your sign-in session expired. Please sign in again.');
+					try {
+						const { user, org, orgs: available, permissions } = await live.verifyOtp(pending.email, code.trim());
+						if (!org) throw new AuthError('Your account is not in any workspace yet.');
+						set({ status: 'authenticated', user, org, availableOrgs: available, permissions, pendingLogin: null });
+						return org;
+					} catch (err) {
+						if (err instanceof AuthError) throw err;
+						const { message, field } = live.messageFor(err, 'We could not verify that code.');
+						throw new AuthError(message, field);
+					}
+				}
+
 				await sleep(LATENCY);
 				const pending = get().pendingLogin;
 				if (!pending) throw new AuthError('Your sign-in session expired. Please sign in again.');
@@ -99,7 +163,23 @@ export const useAuthStore = create<AuthState>()(
 			},
 
 			async resendOtp() {
+				if (isLiveApi()) {
+					const pending = get().pendingLogin;
+					if (pending?.email) await live.resendOtp(pending.email);
+					return;
+				}
 				await sleep(300);
+			},
+
+			hydrate({ user, org, orgs: available, permissions }) {
+				set({
+					status: 'authenticated',
+					user,
+					org,
+					availableOrgs: available,
+					permissions: permissions ?? [],
+					pendingLogin: null,
+				});
 			},
 
 			switchOrg(orgId) {
@@ -113,20 +193,94 @@ export const useAuthStore = create<AuthState>()(
 			},
 
 			logout() {
-				set({ status: 'anonymous', user: null, org: null, availableOrgs: [], pendingLogin: null });
+				// Fire-and-forget: the session is revoked server-side, but the UI
+				// should not wait on the network to sign someone out.
+				if (isLiveApi()) void live.logout();
+				set({ status: 'anonymous', user: null, org: null, availableOrgs: [], permissions: [], pendingLogin: null });
 			},
 
 			updateSignup(patch) {
 				set({ signup: { ...get().signup, ...patch } });
 			},
 
+			async registerAccount(password) {
+				const d = get().signup;
+				const name = `${d.firstName} ${d.lastName}`.trim();
+
+				if (isLiveApi()) {
+					try {
+						await live.signup({ email: d.email, name, password, phone: d.phone || undefined });
+					} catch (err) {
+						const { message, field } = live.messageFor(err, 'We could not create your account.');
+						throw new AuthError(message, field);
+					}
+
+					// The code that confirms the address goes out straight away, so the
+					// next screen has one waiting. A failure here — the send shares a
+					// rate limit with signup itself — must not surface as a failed
+					// signup: the account exists, and saying otherwise sends people
+					// back to a form that will now reject them as already registered.
+					// The verify screen can ask for another code.
+					try {
+						await live.sendSignupCode(d.email);
+					} catch {
+						// Intentionally ignored; see above.
+					}
+					return;
+				}
+
+				await sleep(LATENCY);
+			},
+
+			async resendSignupCode() {
+				if (isLiveApi()) {
+					await live.sendSignupCode(get().signup.email);
+					return;
+				}
+				await sleep(300);
+			},
+
 			async verifySignupOtp(code) {
+				if (isLiveApi()) {
+					const d = get().signup;
+					try {
+						const session = await live.verifySignupCode(d.email, code.trim());
+						// An invited person already has a workspace: signing in is what
+						// accepts the invitation, so the session is live from here.
+						set({
+							status: session.org ? 'authenticated' : 'anonymous',
+							user: session.user,
+							org: session.org,
+							availableOrgs: session.orgs,
+							permissions: session.permissions,
+							signup: { ...d, phoneVerified: true },
+						});
+						return session.org;
+					} catch (err) {
+						const { message, field } = live.messageFor(err, 'We could not verify that code.');
+						throw new AuthError(message, field);
+					}
+				}
+
 				await sleep(LATENCY);
 				if (code !== DEMO_OTP) throw new AuthError(`That code is not right. For the demo, use ${DEMO_OTP}.`, 'code');
 				set({ signup: { ...get().signup, phoneVerified: true } });
+				return null;
 			},
 
-			async completeSignup() {
+			async completeSignup(invites = []) {
+				if (isLiveApi()) {
+					const org = get().org;
+					// Without a workspace there is nobody to invite into. The account is
+					// already created and verified; the caller decides what to show.
+					if (!org) return { org: null, invites: [] };
+
+					const wanted = invites.filter((i) => i.email.trim());
+					const results = wanted.length ? await live.inviteMembers(org.slug, wanted) : [];
+					set({ signup: emptySignup });
+					return { org, invites: results };
+				}
+
 				await sleep(LATENCY + 300);
 				const d = get().signup;
 				const org: Org = {
@@ -152,7 +306,7 @@ export const useAuthStore = create<AuthState>()(
 					avatarTint: 'teal',
 				};
 				set({ status: 'authenticated', user, org, availableOrgs: [org], signup: emptySignup });
-				return org;
+				return { org, invites: [] };
 			},
 
 			resetSignup() {
@@ -162,7 +316,7 @@ export const useAuthStore = create<AuthState>()(
 		{
 			name: 'ledgedesk.session',
 			storage: createJSONStorage(() => sessionStorage),
-			partialize: (s) => ({ status: s.status, user: s.user, org: s.org, availableOrgs: s.availableOrgs, signup: s.signup }),
+			partialize: (s) => ({ status: s.status, user: s.user, org: s.org, availableOrgs: s.availableOrgs, permissions: s.permissions, signup: s.signup, pendingLogin: s.pendingLogin }),
 		},
 	),
 );
