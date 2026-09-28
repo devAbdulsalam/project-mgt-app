@@ -402,7 +402,11 @@ export interface ProgramActions {
 
 export function useProgramActions(org: string): ProgramActions {
 	const live = isLiveApi();
-	const db = useDb();
+	// Use getState (not useDb()) for write operations — the mock actions only
+	// need the current snapshot, never reactivity, so subscribing to the entire
+	// store here would re-render every consumer on every mutation and cause an
+	// infinite update loop.
+	const getDb = useDb.getState;
 	const actor = useActor();
 	const queryClient = useQueryClient();
 
@@ -420,29 +424,37 @@ export function useProgramActions(org: string): ProgramActions {
 	if (!live) {
 		return {
 			async createProgram(input) {
+				const db = getDb();
 				return db.createProgram({ ...input, description: input.description ?? '' }, actor).key;
 			},
 			async updateProgram(key, patch) {
+				const db = getDb();
 				db.updateProgram(key, patch as never);
 			},
 			async setArchived(key, archived) {
+				const db = getDb();
 				db.archiveProgram(key, archived);
 			},
 			async deleteProgram(key) {
+				const db = getDb();
 				db.deleteProgram(key);
 			},
 			async createActivity(programKey, input) {
+				const db = getDb();
 				return db.createActivity(programKey, { ...input, description: input.description ?? '' }).key;
 			},
 			async transitionActivity(key, to) {
+				const db = getDb();
 				const ok = db.transitionActivity(key, to);
 				if (!ok) toast('That is not a valid move from here.', { tone: 'danger' });
 				return ok;
 			},
 			async deleteActivity(key) {
+				const db = getDb();
 				db.deleteActivity(key);
 			},
 			async addParticipant(_activityKey, activityId, input) {
+				const db = getDb();
 				db.addParticipant(activityId, {
 					kind: input.kind,
 					name: input.name ?? 'Attendee',
@@ -453,9 +465,11 @@ export function useProgramActions(org: string): ProgramActions {
 				return true;
 			},
 			async setParticipantStatus(id, status) {
+				const db = getDb();
 				db.setParticipantStatus(id, status);
 			},
 			async removeParticipant(id) {
+				const db = getDb();
 				db.removeParticipant(id);
 			},
 		};

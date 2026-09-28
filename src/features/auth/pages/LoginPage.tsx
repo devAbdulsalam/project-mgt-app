@@ -183,24 +183,24 @@ export function LoginPage() {
 				</a>
 			</p>
 
-			<DemoHint />
+			{/* <DemoHint/> */}
 		</AuthShell>
 	);
 }
 
-function DemoHint() {
-	return (
-		<div className="mt-8 rounded-[10px] border border-dashed border-border-strong bg-white px-3.5 py-3 text-xs text-t2">
-			<b className="text-t1">Demo accounts</b> · password is{' '}
-			<span className="kbd">password</span>, OTP is{' '}
-			<span className="kbd">482913</span>
-			<ul className="mt-1.5 space-y-0.5">
-				{demoAccounts.map((a) => (
-					<li key={a.email} className="font-mono text-[11px]">
-						{a.email}
-					</li>
-				))}
-			</ul>
-		</div>
-	);
-}
+// function DemoHint() {
+// 	return (
+// 		<div className="mt-8 rounded-[10px] border border-dashed border-border-strong bg-white px-3.5 py-3 text-xs text-t2">
+// 			<b className="text-t1">Demo accounts</b> · password is{' '}
+// 			<span className="kbd">password</span>, OTP is{' '}
+// 			<span className="kbd">482913</span>
+// 			<ul className="mt-1.5 space-y-0.5">
+// 				{demoAccounts.map((a) => (
+// 					<li key={a.email} className="font-mono text-[11px]">
+// 						{a.email}
+// 					</li>
+// 				))}
+// 			</ul>
+// 		</div>
+// 	);
+// }

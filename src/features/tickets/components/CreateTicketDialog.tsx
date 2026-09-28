@@ -2,29 +2,97 @@ import { useEffect, useMemo, useState } from 'react';
 import { useForm, useWatch, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ChevronDown, Paperclip, Shield, X } from 'lucide-react';
-import { Button, Checkbox, Dialog, Field, Input, Kbd, LabelChip, Menu, ProgressBar, Select, Textarea } from '@/shared/ui';
+import {
+	Button,
+	Checkbox,
+	Dialog,
+	Field,
+	Input,
+	Kbd,
+	LabelChip,
+	Menu,
+	ProgressBar,
+	Select,
+	Textarea,
+} from '@/shared/ui';
 import { typeMeta } from '@/shared/ui/meta';
 import { priorityLabel } from '@/shared/ui/meta';
 import { cn } from '@/shared/lib/cn';
 import { fromDateInputValue } from '@/shared/lib/time';
-import { clients, epics, team, useDb, type CreateTicketInput } from '@/mocks/db';
+import {
+	clients,
+	epics,
+	team,
+	useDb,
+	type CreateTicketInput,
+} from '@/mocks/db';
 import { allPriorities } from '@/mocks/seed';
 import { toast } from '@/shared/lib/toast-store';
 import { formatBytes } from '../api/mapper';
 import type { Impact, TicketType } from '@/mocks/types';
 import { useActor } from '../hooks/useActor';
 import { useAttachmentUploads } from '../hooks/useAttachmentUploads';
+import { useProjectList } from '@/features/projects/hooks/useProjectList';
+import { useAuthStore } from '@/shared/lib/auth-store';
+import { isLiveApi } from '@/shared/lib/live-api';
+import { useClientStats, useEpics, useMembers } from '@/api/resources';
+import { createTicketMutation } from '../api/mutations';
 
-const impacts: Impact[] = ['S1 · Branch down', 'S2 · Degraded', 'S3 · Single user', 'S4 · Cosmetic'];
+const impacts: Impact[] = [
+	'S1 · Branch down',
+	'S2 · Degraded',
+	'S3 · Single user',
+	'S4 · Cosmetic',
+];
 const types: TicketType[] = ['task', 'bug', 'story', 'epic', 'support'];
 
 const templates: { id: string; name: string; values: Partial<FormValues> }[] = [
 	{ id: 'none', name: 'No template', values: {} },
-	{ id: 'vpn', name: 'VPN / connectivity', values: { type: 'support', priority: 'P2', impact: 'S2 · Degraded', labels: 'vpn', title: 'VPN drops for remote staff', description: 'Who is affected:\nSince when:\nNetwork / ISP:\n\nImpact: ' } },
-	{ id: 'power', name: 'Power / UPS', values: { type: 'support', priority: 'P2', impact: 'S2 · Degraded', labels: 'power, ups', title: 'UPS not holding load during outage' } },
-	{ id: 'onboard', name: 'New hire onboarding', values: { type: 'task', priority: 'P3', labels: 'onboarding', title: 'Onboard new hires', description: 'Number of users:\nStart date:\nDevices:\nLicences: ' } },
-	{ id: 'bug', name: 'Software bug', values: { type: 'bug', priority: 'P3', description: 'Steps to reproduce:\n1.\n2.\n\nExpected:\nActual:' } },
+	{
+		id: 'vpn',
+		name: 'VPN / connectivity',
+		values: {
+			type: 'support',
+			priority: 'P2',
+			impact: 'S2 · Degraded',
+			labels: 'vpn',
+			title: 'VPN drops for remote staff',
+			description: 'Who is affected:\nSince when:\nNetwork / ISP:\n\nImpact: ',
+		},
+	},
+	{
+		id: 'power',
+		name: 'Power / UPS',
+		values: {
+			type: 'support',
+			priority: 'P2',
+			impact: 'S2 · Degraded',
+			labels: 'power, ups',
+			title: 'UPS not holding load during outage',
+		},
+	},
+	{
+		id: 'onboard',
+		name: 'New hire onboarding',
+		values: {
+			type: 'task',
+			priority: 'P3',
+			labels: 'onboarding',
+			title: 'Onboard new hires',
+			description: 'Number of users:\nStart date:\nDevices:\nLicences: ',
+		},
+	},
+	{
+		id: 'bug',
+		name: 'Software bug',
+		values: {
+			type: 'bug',
+			priority: 'P3',
+			description: 'Steps to reproduce:\n1.\n2.\n\nExpected:\nActual:',
+		},
+	},
 ];
 
 const schema = z.object({
@@ -49,12 +117,33 @@ type FormValues = z.infer<typeof schema>;
 
 const DRAFT_KEY = 'ledgedesk.ticketDraft';
 
-export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey, defaults }: { open: boolean; onClose: () => void; onCreated?: (key: string) => void; defaultProjectKey?: string; defaults?: Partial<Pick<FormValues, 'clientId' | 'asset' | 'title' | 'priority' | 'type'>> }) {
+export function CreateTicketDialog({
+	open,
+	onClose,
+	onCreated,
+	defaultProjectKey,
+	defaults,
+}: {
+	open: boolean;
+	onClose: () => void;
+	onCreated?: (key: string) => void;
+	defaultProjectKey?: string;
+	defaults?: Partial<
+		Pick<FormValues, 'clientId' | 'asset' | 'title' | 'priority' | 'type'>
+	>;
+}) {
 	const actor = useActor();
-	const allProjects = useDb((s) => s.projects);
-	const projects = useMemo(() => allProjects.filter((p) => !p.archived), [allProjects]);
+	const live = isLiveApi();
+	const orgSlug = useAuthStore((s) => s.org?.slug ?? '');
+	const { projects: availableProjects, loading: projectsLoading } =
+		useProjectList(orgSlug);
+	const projects = useMemo(
+		() => availableProjects.filter((p) => !p.archived),
+		[availableProjects],
+	);
 	const allTickets = useDb((s) => s.tickets);
 	const createTicket = useDb((s) => s.createTicket);
+	const queryClient = useQueryClient();
 	const [template, setTemplate] = useState('none');
 
 	// Files upload as they are chosen, so the wait overlaps with typing the rest
@@ -76,7 +165,8 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 	const form = useForm<FormValues>({
 		resolver: zodResolver(schema),
 		defaultValues: {
-			type: defaultProjectKey && defaultProjectKey !== 'KS' ? 'task' : 'support',
+			type:
+				defaultProjectKey && defaultProjectKey !== 'KS' ? 'task' : 'support',
 			projectKey: defaultProjectKey ?? 'KS',
 			priority: 'P3',
 			title: '',
@@ -92,32 +182,109 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 	const [prevDefaults, setPrevDefaults] = useState(defaults);
 	if (prevDefaults !== defaults) {
 		setPrevDefaults(defaults);
-		if (defaults) Object.entries(defaults).forEach(([k, v]) => form.setValue(k as keyof FormValues, v as never));
+		if (defaults)
+			Object.entries(defaults).forEach(([k, v]) =>
+				form.setValue(k as keyof FormValues, v as never),
+			);
 	}
 	const { register, control, handleSubmit, setValue, reset, formState } = form;
 	const type = useWatch({ control, name: 'type' });
+	// projectKey must be declared before any hook that depends on it (e.g. useEpics).
 	const projectKey = useWatch({ control, name: 'projectKey' });
+
+	const clientQuery = useClientStats(orgSlug);
+	const memberQuery = useMembers(orgSlug);
+	// useEpics is called after projectKey is declared — avoids TDZ crash.
+	const epicQuery = useEpics(orgSlug, projectKey || undefined);
+	const clientChoices = useMemo(
+		() =>
+			live
+				? (clientQuery.data ?? []).map((c) => ({
+						id: c.id,
+						name: c.name,
+						tier: c.tier ?? 'Standard',
+						sites: c.profile?.sites ?? [],
+						contactName: c.primary_contact ?? '',
+					}))
+				: clients.map((c) => ({
+						id: c.id,
+						name: c.name,
+						tier: c.tier,
+						sites: c.sites,
+						contactName: c.contact.name,
+					})),
+		[live, clientQuery.data],
+	);
+	const memberChoices = useMemo(
+		() =>
+			live
+				? (memberQuery.data ?? []).map((m) => ({ id: m.id, name: m.name }))
+				: team.filter((m) => m.id !== 'u_amr'),
+		[live, memberQuery.data],
+	);
+	const epicChoices = useMemo(
+		() =>
+			live
+				? (epicQuery.data ?? [])
+						.filter((e) => e.status !== 'Done')
+						.map((e) => ({ id: e.id, name: e.name, projectKey: e.key.split('-')[0] }))
+				: epics.filter((e) => e.projectKey === projectKey && e.status !== 'Done'),
+		[live, epicQuery.data, projectKey],
+	);
 	const clientId = useWatch({ control, name: 'clientId' });
 	const title = useWatch({ control, name: 'title' });
 	const priority = useWatch({ control, name: 'priority' });
 	const labels = useWatch({ control, name: 'labels' });
 	const project = projects.find((p) => p.key === projectKey);
-	const isService = project?.kind !== 'software';
-	const client = clients.find((c) => c.id === clientId);
+	const isService = project ? project.kind !== 'software' : type === 'support';
+	const client = clientChoices.find((c) => c.id === clientId);
+	const liveCreate = useMutation(
+		createTicketMutation(queryClient, { org: orgSlug }, projectKey || ''),
+	);
+
+	useEffect(() => {
+		if (
+			projectsLoading ||
+			projects.length === 0 ||
+			projects.some((p) => p.key === projectKey)
+		)
+			return;
+		const preferred =
+			defaultProjectKey && projects.some((p) => p.key === defaultProjectKey)
+				? defaultProjectKey
+				: projects[0].key;
+		setValue('projectKey', preferred);
+	}, [defaultProjectKey, projectKey, projects, projectsLoading, setValue]);
 
 	// Duplicate detection on the summary
 	const duplicate = useMemo(() => {
-		const words = (title ?? '').toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+		const words = (title ?? '')
+			.toLowerCase()
+			.split(/\s+/)
+			.filter((w) => w.length > 3);
 		if (words.length < 2) return undefined;
-		return allTickets.find((t) => t.status !== 'Closed' && t.status !== 'Resolved' && words.filter((w) => t.title.toLowerCase().includes(w)).length >= Math.min(3, words.length));
-	}, [title, allTickets]);
+		if (live) return undefined;
+		return allTickets.find(
+			(t) =>
+				t.status !== 'Closed' &&
+				t.status !== 'Resolved' &&
+				words.filter((w) => t.title.toLowerCase().includes(w)).length >=
+					Math.min(3, words.length),
+		);
+	}, [title, allTickets, live]);
 
 	// Suggested assignee: on-call for the client's region
 	const suggested = useMemo(() => {
 		if (!client) return undefined;
+		if (live) return undefined;
 		const region = client.sites[0]?.split(' ')[0];
-		return team.find((m) => m.role === 'Field engineer' && region && m.base.startsWith(region)) ?? team.find((m) => m.role === 'Support agent');
-	}, [client]);
+		return (
+			team.find(
+				(m) =>
+					m.role === 'Field engineer' && region && m.base.startsWith(region),
+			) ?? team.find((m) => m.role === 'Support agent')
+		);
+	}, [client, live]);
 
 	// Draft autosave
 	const values = useWatch({ control });
@@ -134,7 +301,9 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 		setTemplate(id);
 		const t = templates.find((x) => x.id === id);
 		if (!t) return;
-		Object.entries(t.values).forEach(([k, v]) => setValue(k as keyof FormValues, v as never, { shouldDirty: true }));
+		Object.entries(t.values).forEach(([k, v]) =>
+			setValue(k as keyof FormValues, v as never, { shouldDirty: true }),
+		);
 	};
 
 	const clearDraft = () => {
@@ -145,11 +314,13 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 		}
 	};
 
-	const submit = handleSubmit((v) => {
+	const submit = handleSubmit(async (v) => {
 		// Submitting now would create the ticket without the file that is still
 		// going out, and there would be nothing to tell the person so.
 		if (uploads.uploading) {
-			toast('Wait for the attachments to finish uploading.', { tone: 'danger' });
+			toast('Wait for the attachments to finish uploading.', {
+				tone: 'danger',
+			});
 			return;
 		}
 
@@ -164,7 +335,10 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 			assigneeId: v.assigneeId || undefined,
 			reporterName: v.reporterName || undefined,
 			reporterIsClient: !!v.reporterName && !!client,
-			labels: (v.labels ?? '').split(',').map((s) => s.trim().toLowerCase().replace(/\s+/g, '-')).filter(Boolean),
+			labels: (v.labels ?? '')
+				.split(',')
+				.map((s) => s.trim().toLowerCase().replace(/\s+/g, '-'))
+				.filter(Boolean),
 			description: v.description,
 			dueAt: fromDateInputValue(v.dueDate ?? ''),
 			sprint: v.sprint || undefined,
@@ -172,15 +346,31 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 			asset: v.asset || undefined,
 			impact: (v.impact as Impact) || undefined,
 			storyPoints: v.storyPoints ? Number(v.storyPoints) : undefined,
-			category: v.asset ? `${typeMeta[v.type].label} · ${v.asset.split(' · ')[0]}` : typeMeta[v.type].label,
+			category: v.asset
+				? `${typeMeta[v.type].label} · ${v.asset.split(' · ')[0]}`
+				: typeMeta[v.type].label,
 			attachments: uploads.attachments,
 			// Ids of files already stored by the API. The create call claims them;
 			// the mock store ignores them and keeps `attachments` above.
 			attachmentIds: uploads.attachmentIds,
 		};
-		const created = createTicket(input, actor);
+		let created;
+		try {
+			created = live
+				? await liveCreate.mutateAsync(input)
+				: createTicket(input, actor);
+		} catch (error) {
+			toast(
+				error instanceof Error ? error.message : 'Could not create the ticket.',
+				{ tone: 'danger' },
+			);
+			return;
+		}
 		clearDraft();
-		toast(`${created.key} created`, { tone: 'success', description: created.title });
+		toast(`${created.key} created`, {
+			tone: 'success',
+			description: created.title,
+		});
 		if (v.createAnother) {
 			reset({ ...v, title: '', description: '', createAnother: true });
 			uploads.reset();
@@ -190,7 +380,7 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 		}
 	});
 
-	const projectEpics = epics.filter((e) => e.projectKey === projectKey && e.status !== 'Done');
+	const projectEpics = epicChoices;
 
 	return (
 		<Dialog
@@ -203,12 +393,24 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 						width="w-56"
 						trigger={({ toggle, buttonProps }) => (
 							<Button size="md" onClick={toggle} {...buttonProps}>
-								Template: {templates.find((t) => t.id === template)?.name} <ChevronDown size={13} aria-hidden />
+								Template: {templates.find((t) => t.id === template)?.name}{' '}
+								<ChevronDown size={13} aria-hidden />
 							</Button>
 						)}
-						items={templates.map((t) => ({ key: t.id, label: t.name, selected: t.id === template, onSelect: () => applyTemplate(t.id) }))}
+						items={templates.map((t) => ({
+							key: t.id,
+							label: t.name,
+							selected: t.id === template,
+							onSelect: () => applyTemplate(t.id),
+						}))}
 					/>
-					<span className="ms-auto hidden text-xs text-t3 sm:inline">{formState.isDirty ? 'Draft saved · just now' : savedDraft ? 'Draft restored' : ''}</span>
+					<span className="ms-auto hidden text-xs text-t3 sm:inline">
+						{formState.isDirty
+							? 'Draft saved · just now'
+							: savedDraft
+								? 'Draft restored'
+								: ''}
+					</span>
 				</>
 			}
 			footer={
@@ -220,14 +422,27 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 						</Button>
 						<Button
 							onClick={() => {
-								toast('Draft saved', { description: 'It will be restored next time you open Create ticket.' });
+								toast('Draft saved', {
+									description:
+										'It will be restored next time you open Create ticket.',
+								});
 								onClose();
 							}}
 						>
 							Save draft
 						</Button>
-						<Button variant="primary" onClick={submit} loading={formState.isSubmitting || uploads.uploading}>
-							{uploads.uploading ? 'Uploading files…' : <>Create ticket <Kbd>⌘↵</Kbd></>}
+						<Button
+							variant="primary"
+							onClick={submit}
+							loading={formState.isSubmitting || uploads.uploading}
+						>
+							{uploads.uploading ? (
+								'Uploading files…'
+							) : (
+								<>
+									Create ticket <Kbd>⌘↵</Kbd>
+								</>
+							)}
 						</Button>
 					</div>
 				</div>
@@ -250,9 +465,25 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 								const m = typeMeta[t];
 								const on = type === t;
 								return (
-									<label key={t} className={cn('flex cursor-pointer items-center gap-2.5 rounded-[10px] border px-3 py-2.5 text-[13px] font-medium', on ? 'border-brand-600 bg-brand-100' : 'border-border-strong bg-white hover:bg-muted')}>
-										<input type="radio" value={t} className="sr-only" {...register('type')} />
-										<span className={cn('size-4 rounded-[4px]', m.color)} aria-hidden />
+									<label
+										key={t}
+										className={cn(
+											'flex cursor-pointer items-center gap-2.5 rounded-[10px] border px-3 py-2.5 text-[13px] font-medium',
+											on
+												? 'border-brand-600 bg-brand-100'
+												: 'border-border-strong bg-white hover:bg-muted',
+										)}
+									>
+										<input
+											type="radio"
+											value={t}
+											className="sr-only"
+											{...register('type')}
+										/>
+										<span
+											className={cn('size-4 rounded-[4px]', m.color)}
+											aria-hidden
+										/>
 										{m.label.replace(' request', '')}
 									</label>
 								);
@@ -261,7 +492,11 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 					</fieldset>
 
 					<div className="grid gap-3.5 sm:grid-cols-2">
-						<Field label="Project" required error={formState.errors.projectKey?.message}>
+						<Field
+							label="Project"
+							required
+							error={formState.errors.projectKey?.message}
+						>
 							{(id) => (
 								<Select id={id} {...register('projectKey')}>
 									{projects.map((p) => (
@@ -275,9 +510,17 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 						{isService ? (
 							<Field label="Client" required>
 								{(id) => (
-									<Select id={id} {...register('clientId')}>
-										<option value="">Choose a client</option>
-										{clients.map((c) => (
+									<Select
+										id={id}
+										{...register('clientId')}
+										disabled={live && clientQuery.isPending}
+									>
+										<option value="">
+											{live && clientQuery.isPending
+												? 'Loading clients…'
+												: 'Choose a client'}
+										</option>
+										{clientChoices.map((c) => (
 											<option key={c.id} value={c.id}>
 												{c.name}
 											</option>
@@ -288,8 +531,14 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 						) : (
 							<Field label="Parent / Epic">
 								{(id) => (
-									<Select id={id} {...register('epicId')}>
-										<option value="">None</option>
+									<Select
+										id={id}
+										{...register('epicId')}
+										disabled={live && epicQuery.isPending}
+									>
+										<option value="">
+											{live && epicQuery.isPending ? 'Loading epics…' : 'None'}
+										</option>
 										{projectEpics.map((e) => (
 											<option key={e.id} value={e.id}>
 												{e.name}
@@ -301,30 +550,70 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 						)}
 					</div>
 
-					<Field label="Summary" required error={formState.errors.title?.message}>
+					<Field
+						label="Summary"
+						required
+						error={formState.errors.title?.message}
+					>
 						{(id, d) => (
 							<>
-								<Input id={id} aria-describedby={d} invalid={!!formState.errors.title || !!duplicate} placeholder="What's wrong, in one line" trailing={<span className="text-xs text-t3">{(title ?? '').length} / 200</span>} {...register('title')} />
+								<Input
+									id={id}
+									aria-describedby={d}
+									invalid={!!formState.errors.title || !!duplicate}
+									placeholder="What's wrong, in one line"
+									trailing={
+										<span className="text-xs text-t3">
+											{(title ?? '').length} / 200
+										</span>
+									}
+									{...register('title')}
+								/>
 								{duplicate ? (
-									<p className="mt-1.5 flex items-center gap-1.5 text-xs text-high-fg" role="status">
-										<AlertTriangle size={13} /> A similar open ticket exists: <b>{duplicate.key} {duplicate.title}</b>
+									<p
+										className="mt-1.5 flex items-center gap-1.5 text-xs text-high-fg"
+										role="status"
+									>
+										<AlertTriangle size={13} /> A similar open ticket exists:{' '}
+										<b>
+											{duplicate.key} {duplicate.title}
+										</b>
 									</p>
 								) : null}
 							</>
 						)}
 					</Field>
 
-					<Field label="Description">{(id) => <Textarea id={id} rows={6} placeholder="What happened, what was tried, who is affected… Markdown **bold** supported." {...register('description')} />}</Field>
+					<Field label="Description">
+						{(id) => (
+							<Textarea
+								id={id}
+								rows={6}
+								placeholder="What happened, what was tried, who is affected… Markdown **bold** supported."
+								{...register('description')}
+							/>
+						)}
+					</Field>
 
 					<div className="grid gap-3.5 sm:grid-cols-2">
 						{isService ? (
-							<Field label="Asset">{(id) => <Input id={id} placeholder="e.g. FortiGate 60F · AH-NET-0007" {...register('asset')} />}</Field>
+							<Field label="Asset">
+								{(id) => (
+									<Input
+										id={id}
+										placeholder="e.g. FortiGate 60F · AH-NET-0007"
+										{...register('asset')}
+									/>
+								)}
+							</Field>
 						) : (
 							<Field label="Sprint">
 								{(id) => (
 									<Select id={id} {...register('sprint')}>
 										<option value="">None</option>
-										{project?.sprint ? <option>{project.sprint.name}</option> : null}
+										{project?.sprint ? (
+											<option>{project.sprint.name}</option>
+										) : null}
 										<option>Sprint 25</option>
 										<option>Backlog</option>
 									</Select>
@@ -343,7 +632,17 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 								)}
 							</Field>
 						) : (
-							<Field label="Story points">{(id) => <Input id={id} type="number" min={0} placeholder="e.g. 3" {...register('storyPoints')} />}</Field>
+							<Field label="Story points">
+								{(id) => (
+									<Input
+										id={id}
+										type="number"
+										min={0}
+										placeholder="e.g. 3"
+										{...register('storyPoints')}
+									/>
+								)}
+							</Field>
 						)}
 					</div>
 
@@ -353,7 +652,9 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 								<div
 									className={cn(
 										'rounded-[10px] border border-dashed px-4 py-5 text-center text-[13px] text-t2 transition-colors',
-										dragging ? 'border-brand-600 bg-info-bg' : 'border-border-strong',
+										dragging
+											? 'border-brand-600 bg-info-bg'
+											: 'border-border-strong',
 									)}
 									onDragOver={(e) => {
 										e.preventDefault();
@@ -366,7 +667,11 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 										uploads.add(e.dataTransfer.files);
 									}}
 								>
-									<Paperclip size={18} className="mx-auto mb-1.5 text-t3" aria-hidden />
+									<Paperclip
+										size={18}
+										className="mx-auto mb-1.5 text-t3"
+										aria-hidden
+									/>
 									Drop files or{' '}
 									<label className="cursor-pointer text-brand-600 hover:underline">
 										browse
@@ -375,7 +680,9 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 											type="file"
 											multiple
 											className="sr-only"
-											accept={uploads.policy.extensions.map((e) => `.${e}`).join(',')}
+											accept={uploads.policy.extensions
+												.map((e) => `.${e}`)
+												.join(',')}
 											onChange={(e) => {
 												uploads.add(e.target.files ?? []);
 												// Cleared so choosing the same file twice still fires.
@@ -384,7 +691,8 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 										/>
 									</label>{' '}
 									{/* Read from the API's upload policy, not hard-coded here. */}
-									· up to {formatBytes(uploads.policy.maxBytes)} · {uploads.policy.maxFiles} files
+									· up to {formatBytes(uploads.policy.maxBytes)} ·{' '}
+									{uploads.policy.maxFiles} files
 									{uploads.policy.scanned ? ' · scanned on upload' : ''}
 								</div>
 
@@ -395,18 +703,46 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 												key={f.localId}
 												className={cn(
 													'flex items-center gap-2.5 rounded-[8px] border px-2.5 py-2 text-[12px]',
-													f.status === 'error' ? 'border-danger-fg/30 bg-danger-bg' : 'border-border',
+													f.status === 'error'
+														? 'border-danger-fg/30 bg-danger-bg'
+														: 'border-border',
 												)}
 											>
 												<span className="min-w-0 flex-1">
 													<span className="flex items-center gap-1.5">
-														<span className="truncate font-medium">{f.name}</span>
-														{f.status === 'ready' ? <span className="text-success-fg" aria-label="Uploaded">✓</span> : null}
+														<span className="truncate font-medium">
+															{f.name}
+														</span>
+														{f.status === 'ready' ? (
+															<span
+																className="text-success-fg"
+																aria-label="Uploaded"
+															>
+																✓
+															</span>
+														) : null}
 													</span>
-													<span className={cn('text-[11px]', f.status === 'error' ? 'text-danger-fg' : 'text-t3')}>
-														{f.status === 'error' ? f.error : f.status === 'uploading' ? `Uploading… ${Math.round(f.progress * 100)}%` : f.size}
+													<span
+														className={cn(
+															'text-[11px]',
+															f.status === 'error'
+																? 'text-danger-fg'
+																: 'text-t3',
+														)}
+													>
+														{f.status === 'error'
+															? f.error
+															: f.status === 'uploading'
+																? `Uploading… ${Math.round(f.progress * 100)}%`
+																: f.size}
 													</span>
-													{f.status === 'uploading' ? <ProgressBar value={f.progress * 100} className="mt-1" label={`Uploading ${f.name}`} /> : null}
+													{f.status === 'uploading' ? (
+														<ProgressBar
+															value={f.progress * 100}
+															className="mt-1"
+															label={`Uploading ${f.name}`}
+														/>
+													) : null}
 												</span>
 												<button
 													type="button"
@@ -442,27 +778,49 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 							<>
 								<Select id={id} {...register('assigneeId')}>
 									<option value="">Unassigned</option>
-									{team
-										.filter((m) => m.id !== 'u_amr')
-										.map((m) => (
-											<option key={m.id} value={m.id}>
-												{m.name}
-											</option>
-										))}
+									{memberChoices.map((m) => (
+										<option key={m.id} value={m.id}>
+											{m.name}
+										</option>
+									))}
 								</Select>
 								{suggested ? (
-									<button type="button" className="mt-1.5 text-xs text-brand-600 hover:underline" onClick={() => setValue('assigneeId', suggested.id, { shouldDirty: true })}>
-										Suggested: {suggested.name} · on-call for {client?.sites[0]?.split(' ')[0]}
+									<button
+										type="button"
+										className="mt-1.5 text-xs text-brand-600 hover:underline"
+										onClick={() =>
+											setValue('assigneeId', suggested.id, {
+												shouldDirty: true,
+											})
+										}
+									>
+										Suggested: {suggested.name} · on-call for{' '}
+										{client?.sites[0]?.split(' ')[0]}
 									</button>
 								) : null}
 							</>
 						)}
 					</Field>
-					<Field label="Reporter" hint={isService ? '(client contact)' : undefined}>{(id) => <Input id={id} placeholder={client ? client.contact.name : actor.name} {...register('reporterName')} />}</Field>
+					<Field
+						label="Reporter"
+						hint={isService ? '(client contact)' : undefined}
+					>
+						{(id) => (
+							<Input
+								id={id}
+								placeholder={client?.contactName || actor.name}
+								{...register('reporterName')}
+							/>
+						)}
+					</Field>
 					<Field label="Labels" hint="comma separated">
 						{(id) => (
 							<>
-								<Input id={id} placeholder="vpn, abuja" {...register('labels')} />
+								<Input
+									id={id}
+									placeholder="vpn, abuja"
+									{...register('labels')}
+								/>
 								{labels?.trim() ? (
 									<div className="mt-1.5 flex flex-wrap gap-1">
 										{labels
@@ -470,20 +828,29 @@ export function CreateTicketDialog({ open, onClose, onCreated, defaultProjectKey
 											.map((l) => l.trim())
 											.filter(Boolean)
 											.map((l) => (
-												<LabelChip key={l}>{l.toLowerCase().replace(/\s+/g, '-')}</LabelChip>
+												<LabelChip key={l}>
+													{l.toLowerCase().replace(/\s+/g, '-')}
+												</LabelChip>
 											))}
 									</div>
 								) : null}
 							</>
 						)}
 					</Field>
-					<Field label="Due date" hint={isService ? '(defaults to SLA)' : undefined}>{(id) => <Input id={id} type="date" {...register('dueDate')} />}</Field>
+					<Field
+						label="Due date"
+						hint={isService ? '(defaults to SLA)' : undefined}
+					>
+						{(id) => <Input id={id} type="date" {...register('dueDate')} />}
+					</Field>
 					{isService && client ? (
 						<div className="text-xs text-t2">
 							<div className="mb-1 font-semibold">SLA policy</div>
 							<span className="inline-flex items-center gap-1.5 text-t1">
 								<Shield size={13} className="text-success" aria-hidden />
-								{client.tier.split(' ')[0]} · response {{ P1: '15m', P2: '1h', P3: '4h', P4: '8h' }[priority]} · resolve {{ P1: '4h', P2: '8h', P3: '2d', P4: '5d' }[priority]}
+								{client.tier.split(' ')[0]} · response{' '}
+								{{ P1: '15m', P2: '1h', P3: '4h', P4: '8h' }[priority]} ·
+								resolve {{ P1: '4h', P2: '8h', P3: '2d', P4: '5d' }[priority]}
 							</span>
 						</div>
 					) : null}
