@@ -1,7 +1,7 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Calendar, DollarSign, Info, MapPin, Users } from 'lucide-react';
+import { Calendar, Info, MapPin, Users } from 'lucide-react';
 import { Button, Dialog, Field, Input, Select, Textarea } from '@/shared/ui';
 import { toast } from '@/shared/lib/toast-store';
 import { useMembers } from '@/api/resources';
@@ -38,7 +38,9 @@ export function NewActivityDialog({
 	const mockMembers = useDb((s) => s.members);
 	const members = liveMembers.data
 		? liveMembers.data.map((m) => ({ id: m.id, name: m.name }))
-		: mockMembers.filter((m) => m.status === 'Active').map((m) => ({ id: m.id, name: m.name }));
+		: mockMembers
+				.filter((m) => m.status === 'Active')
+				.map((m) => ({ id: m.id, name: m.name }));
 
 	const schema = z
 		.object({
@@ -53,8 +55,12 @@ export function NewActivityDialog({
 			budgetNaira: z.string().optional(),
 		})
 		.refine(
-			(v) => !v.startsAt || !v.endsAt || new Date(v.endsAt) >= new Date(v.startsAt),
-			{ message: 'End time must be on or after the start time.', path: ['endsAt'] },
+			(v) =>
+				!v.startsAt || !v.endsAt || new Date(v.endsAt) >= new Date(v.startsAt),
+			{
+				message: 'End time must be on or after the start time.',
+				path: ['endsAt'],
+			},
 		);
 
 	type Values = z.infer<typeof schema>;
@@ -78,11 +84,18 @@ export function NewActivityDialog({
 
 	const submit = handleSubmit(async (v) => {
 		const capacity = v.capacity?.trim() ? Number(v.capacity) : undefined;
-		if (capacity !== undefined && (!Number.isInteger(capacity) || capacity < 1)) {
-			return setError('capacity', { message: 'Enter a whole number of places' });
+		if (
+			capacity !== undefined &&
+			(!Number.isInteger(capacity) || capacity < 1)
+		) {
+			return setError('capacity', {
+				message: 'Enter a whole number of places',
+			});
 		}
 
-		const budget = v.budgetNaira?.trim() ? Math.round(Number(v.budgetNaira) * KOBO) : undefined;
+		const budget = v.budgetNaira?.trim()
+			? Math.round(Number(v.budgetNaira) * KOBO)
+			: undefined;
 		if (budget !== undefined && !Number.isFinite(budget)) {
 			return setError('budgetNaira', { message: 'Enter a valid number' });
 		}
@@ -118,7 +131,11 @@ export function NewActivityDialog({
 					<Button variant="ghost" onClick={onClose}>
 						Cancel
 					</Button>
-					<Button variant="primary" onClick={submit} loading={formState.isSubmitting}>
+					<Button
+						variant="primary"
+						onClick={submit}
+						loading={formState.isSubmitting}
+					>
 						Schedule
 					</Button>
 				</div>
@@ -136,21 +153,25 @@ export function NewActivityDialog({
 					<Field label="Type" required>
 						{() => (
 							<div className="grid grid-cols-5 gap-2">
-								{(Object.entries(kindLabels) as [string, string][]).map(([value, label]) => (
-									<label
-										key={value}
-										className="flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-border-strong px-2 py-3 text-center text-[11px] font-medium transition-colors has-[:checked]:border-brand-600 has-[:checked]:bg-brand-50 hover:bg-muted"
-									>
-										<input
-											type="radio"
-											value={value}
-											className="sr-only"
-											{...register('kind')}
-										/>
-										<span className="text-base leading-none">{kindIcons[value]}</span>
-										{label}
-									</label>
-								))}
+								{(Object.entries(kindLabels) as [string, string][]).map(
+									([value, label]) => (
+										<label
+											key={value}
+											className="flex cursor-pointer flex-col items-center gap-1 rounded-lg border border-border-strong px-2 py-3 text-center text-[11px] font-medium transition-colors has-[:checked]:border-brand-600 has-[:checked]:bg-brand-50 hover:bg-muted"
+										>
+											<input
+												type="radio"
+												value={value}
+												className="sr-only"
+												{...register('kind')}
+											/>
+											<span className="text-base leading-none">
+												{kindIcons[value]}
+											</span>
+											{label}
+										</label>
+									),
+								)}
 							</div>
 						)}
 					</Field>
@@ -166,7 +187,10 @@ export function NewActivityDialog({
 						)}
 					</Field>
 
-					<Field label="Description" error={formState.errors.description?.message}>
+					<Field
+						label="Description"
+						error={formState.errors.description?.message}
+					>
 						{(id) => (
 							<Textarea
 								id={id}
@@ -187,7 +211,13 @@ export function NewActivityDialog({
 
 					<div className="grid gap-4 sm:grid-cols-2">
 						<Field label="Starts at">
-							{(id) => <Input id={id} type="datetime-local" {...register('startsAt')} />}
+							{(id) => (
+								<Input
+									id={id}
+									type="datetime-local"
+									{...register('startsAt')}
+								/>
+							)}
 						</Field>
 						<Field label="Ends at" error={formState.errors.endsAt?.message}>
 							{(id) => (
