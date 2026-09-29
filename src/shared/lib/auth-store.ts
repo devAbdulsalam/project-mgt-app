@@ -315,7 +315,7 @@ export const useAuthStore = create<AuthState>()(
 		}),
 		{
 			name: 'ledgedesk.session',
-			storage: createJSONStorage(() => sessionStorage),
+			storage: createJSONStorage(() => localStorage),
 			partialize: (s) => ({ status: s.status, user: s.user, org: s.org, availableOrgs: s.availableOrgs, permissions: s.permissions, signup: s.signup, pendingLogin: s.pendingLogin }),
 		},
 	),

@@ -31,7 +31,7 @@ export const LIVE_DRAFTS = ['general', 'businessHours', 'branding'] as const;
 export type LiveDraftSection = (typeof LIVE_DRAFTS)[number];
 
 /** Sections that talk to the backend, for the notice on the ones that do not. */
-export const LIVE_SECTIONS = new Set(['general', 'business-hours', 'branding', 'team', 'sla', 'api']);
+export const LIVE_SECTIONS = new Set(['general', 'business-hours', 'branding', 'team', 'sla', 'api', 'notifications']);
 
 // What a workspace that has never saved shows. Neutral on purpose: the demo
 // company's registered numbers must not appear as if they were this workspace's.

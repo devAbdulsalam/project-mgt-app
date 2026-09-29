@@ -33,7 +33,7 @@ function withLock<T>(fn: () => Promise<T>): Promise<T> {
 
 async function exchange(): Promise<RefreshOutcome> {
 	try {
-		const res = await fetch(`${API_BASE_URL}/auth/refresh`, { method: 'POST', headers: { Accept: 'application/json' } });
+		const res = await fetch(`${API_BASE_URL}/auth/refresh`, { method: 'POST', credentials: 'include', headers: { Accept: 'application/json' } });
 
 		if (res.status === 401 || res.status === 403) {
 			useTokenStore.getState().clear();

@@ -37,7 +37,7 @@ import { sectionTitle, settingsSections, type SettingsSection } from './model';
 import { useTourStore } from '@/features/tour/store';
 import { isLiveApi } from '@/shared/lib/live-api';
 import { useTeamMembers } from '@/features/team/hooks/useTeam';
-import { LiveApiKeys, LiveSla, NotConnectedNotice, SettingsGate } from './live';
+import { LiveApiKeys, LiveSla, NotConnectedNotice, SettingsGate, LiveNotificationPrefs } from './live';
 import { LIVE_SECTIONS, useLiveSection } from './hooks/useLiveSettings';
 import { MousePointerClick, PlayCircle } from 'lucide-react';
 
@@ -1072,6 +1072,7 @@ function Channels() {
 				title="Channels"
 				sub="Where client requests come from. Each channel creates tickets in the Service desk project."
 			/>
+			{isLiveApi() && <NotConnectedNotice />}
 			<div className="mt-2">
 				<Row
 					label={
@@ -1645,6 +1646,7 @@ function Automation() {
 					</Button>
 				}
 			/>
+			{isLiveApi() && <NotConnectedNotice />}
 			<ul className="mt-3 divide-y divide-border">
 				{rules.map((r) => (
 					<li
@@ -1799,6 +1801,7 @@ function Csat() {
 				title="CSAT surveys"
 				sub="Sent after a ticket is resolved. Low scores open a follow-up task for the account manager."
 			/>
+			{isLiveApi() && <NotConnectedNotice />}
 			<div className="mt-2">
 				<Row label="Send surveys">
 					<Switch
@@ -1878,6 +1881,7 @@ function Plans() {
 				title="Contract plans"
 				sub="Defaults applied when a client is created. Existing contracts keep their own terms."
 			/>
+			{isLiveApi() && <NotConnectedNotice />}
 			<div className="mt-4 grid gap-4 md:grid-cols-3">
 				{plans.map((p, i) => (
 					<div
@@ -1978,6 +1982,7 @@ function Invoicing() {
 				title="Invoicing & tax"
 				sub={`VAT ${g.vatPct}% is added to every invoice. ${g.rc} · ${g.tin} appear in the footer.`}
 			/>
+			{isLiveApi() && <NotConnectedNotice />}
 			<div className="mt-2">
 				<Row label="Invoice prefix">
 					<Input
@@ -2077,6 +2082,7 @@ function Portal() {
 				title="Client portal"
 				sub={`Live at ${channels.portal.url}. Clients sign in with the contacts on their account.`}
 			/>
+			{isLiveApi() && <NotConnectedNotice />}
 			<div className="mt-2">
 				{(
 					[
@@ -2133,7 +2139,9 @@ function Integrations() {
 	const list = useDb((s) => s.settings.integrations);
 	const setSettings = useDb((s) => s.setSettings);
 	return (
-		<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+		<div className="space-y-4">
+			{isLiveApi() && <NotConnectedNotice />}
+			<div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
 			{list.map((i) => (
 				<Card key={i.id} className="flex flex-col p-5">
 					<div className="flex items-start justify-between gap-2">
@@ -2201,6 +2209,7 @@ function Integrations() {
 					</div>
 				</Card>
 			))}
+		</div>
 		</div>
 	);
 }
@@ -2480,6 +2489,21 @@ function ExportNdpr() {
 	);
 }
 
+// ---------- notification preferences ----------
+
+function NotifPrefs() {
+	if (isLiveApi()) return <LiveNotificationPrefs />;
+	return (
+		<Card className="p-6">
+			<CardHeader
+				title="Notification preferences"
+				sub="Control which events send you an in-app alert and which also email you."
+			/>
+			<p className="mt-4 text-[13px] text-t2">Connect to the live API to manage notification preferences.</p>
+		</Card>
+	);
+}
+
 // ---------- page ----------
 
 export function SettingsPage() {
@@ -2517,6 +2541,8 @@ export function SettingsPage() {
 				return <Automation />;
 			case 'csat':
 				return <Csat />;
+			case 'notifications':
+				return <NotifPrefs />;
 			case 'plans':
 				return <Plans />;
 			case 'invoicing':

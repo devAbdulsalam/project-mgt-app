@@ -28,8 +28,10 @@ export function AuthShell({
 			<aside
 				className="relative hidden flex-col overflow-hidden p-12 text-white lg:flex xl:p-14"
 				style={{
-					backgroundImage: `linear-gradient(rgba(34, 190, 106, 0.7),
-      rgba(34, 190, 106, 0.7)), url(${smilingBg})`,
+					backgroundImage: `linear-gradient(
+					rgba(17, 13, 84, 0.7),
+					rgba(34, 190, 106, 0.7)),
+					url(${smilingBg})`,
 					backgroundSize: 'cover',
 					backgroundPosition: 'center',
 				}}
@@ -39,13 +41,13 @@ export function AuthShell({
 						<Wordmark light={false} />
 					</Link>
 					{badge ? (
-						<span className="ml-auto text-[11px] text-on-dark-muted">
+						<span className="ml-auto text-[11px]">
 							{badge}
 						</span>
 					) : null}
 				</div>
-				<div className="my-auto max-w-[480px]">{panel}</div>
-				<div className="text-[11px] text-on-dark-muted">
+				<div className="mt-auto mb-8 max-w-[480px]">{panel}</div>
+				<div className="text-[11px] ">
 					{footer ?? '© 2026 Ledge Desk · NDPR compliant · SOC 2 Type II'}
 				</div>
 				<TicketWatermark />
@@ -109,7 +111,7 @@ export function PanelTile({
 	return (
 		<div
 			className={cn(
-				'rounded-[14px] border border-white/10 bg-white/[.08] px-4.5 py-4',
+				'rounded-[14px] border border-white/60 bg-white/[.04] px-4.5 py-4',
 				className,
 			)}
 		>

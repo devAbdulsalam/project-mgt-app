@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearch } from '@tanstack/react-router';
 import { Lock, Wifi } from 'lucide-react';
-import { AuthShell, PanelHeadline, PanelTile } from '@/shared/layouts/AuthShell';
+import {
+	AuthShell,
+	PanelHeadline,
+	PanelTile,
+} from '@/shared/layouts/AuthShell';
 import { Button, OtpInput } from '@/shared/ui';
 import { AuthError, useAuthStore } from '@/shared/lib/auth-store';
 import { maskPhone } from '@/shared/lib/format';
@@ -23,7 +27,8 @@ export function LoginOtpPage() {
 	const resend = useCountdown(42);
 
 	useEffect(() => {
-		if (!pending) navigate({ to: '/login', search: { redirect }, replace: true });
+		if (!pending)
+			navigate({ to: '/login', search: { redirect }, replace: true });
 	}, [pending, navigate, redirect]);
 
 	if (!pending) return null;
@@ -36,7 +41,11 @@ export function LoginOtpPage() {
 		try {
 			const org = await verifyOtp(code);
 			useTourStore.getState().flagLogin();
-			navigate({ to: redirect ?? '/$org/dashboard', params: { org: org.slug }, replace: true });
+			navigate({
+				to: redirect ?? '/$org/dashboard',
+				params: { org: org.slug },
+				replace: true,
+			});
 		} catch (e) {
 			setError(e instanceof AuthError ? e.message : 'Something went wrong');
 			setCode('');
@@ -50,7 +59,9 @@ export function LoginOtpPage() {
 			panel={
 				<>
 					<PanelHeadline title="One more step.">
-						We sent a 6-digit code by SMS and WhatsApp to <b className="text-white">{maskPhone(pending.phone)}</b>. It expires in {expires.label}.
+						We sent a 6-digit code by SMS and WhatsApp to{' '}
+						<b className="text-white">{maskPhone(pending.phone)}</b>. It expires
+						in {expires.label}.
 					</PanelHeadline>
 					<PanelTile
 						className="mt-7 max-w-[440px] text-xs"
@@ -63,7 +74,9 @@ export function LoginOtpPage() {
 			}
 		>
 			<AuthHeading title="Enter the code we sent">
-				SMS and WhatsApp to <b className="text-t1">{maskPhone(pending.phone)}</b> · expires in {expires.label}
+				SMS and WhatsApp to{' '}
+				<b className="text-t1">{maskPhone(pending.phone)}</b> · expires in{' '}
+				{expires.label}
 			</AuthHeading>
 
 			<FormError message={error} />
@@ -74,7 +87,12 @@ export function LoginOtpPage() {
 				}}
 				className="space-y-4"
 			>
-				<OtpInput value={code} onChange={setCode} invalid={!!error} disabled={busy} />
+				<OtpInput
+					value={code}
+					onChange={setCode}
+					invalid={!!error}
+					disabled={busy}
+				/>
 				<div className="flex items-center justify-between text-[13px]">
 					<span className="text-t2">Didn't get it?</span>
 					{resend.remaining > 0 ? (
@@ -97,18 +115,33 @@ export function LoginOtpPage() {
 					<Wifi size={18} className="shrink-0 text-brand-600" aria-hidden />
 					<div>
 						<b>Poor network?</b>
-						<p className="mt-0.5 text-xs text-t2">The app works offline. Visits, photos and notes sync when you're back on data.</p>
+						<p className="mt-0.5 text-xs text-t2">
+							The app works offline. Visits, photos and notes sync when you're
+							back on data.
+						</p>
 					</div>
 				</div>
 
-				<Button type="submit" variant="primary" size="lg" block loading={busy} disabled={code.length < 6}>
+				<Button
+					type="submit"
+					variant="primary"
+					size="lg"
+					block
+					loading={busy}
+					disabled={code.length < 6}
+				>
 					Verify &amp; sign in
 				</Button>
 			</form>
 
 			<p className="mt-5 flex items-center justify-center gap-1.5 text-[11px] text-t2">
-				<Lock size={12} aria-hidden /> Signing in as {pendingUser?.name} · {pendingUser?.role} ·{' '}
-				<button type="button" className="text-brand-600 hover:underline" onClick={() => navigate({ to: '/login', search: { redirect } })}>
+				<Lock size={12} aria-hidden /> Signing in as {pendingUser?.name} ·{' '}
+				{pendingUser?.role} ·{' '}
+				<button
+					type="button"
+					className="text-brand-600 hover:underline"
+					onClick={() => navigate({ to: '/login', search: { redirect } })}
+				>
 					Not you?
 				</button>
 			</p>

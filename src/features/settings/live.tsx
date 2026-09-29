@@ -7,7 +7,7 @@
 // page (channels, automation, billing, webhooks…) has no server model yet.
 
 import { useState, type ReactNode } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { KeyRound, Copy, Trash2 } from 'lucide-react';
 import { api } from '@/api';
 import { Button, Card, CardHeader, Dialog, Field, Input, LabelChip } from '@/shared/ui';
@@ -258,5 +258,158 @@ export function LiveApiKeys() {
 				</div>
 			</Dialog>
 		</Card>
+	);
+}
+
+// -- Notification preferences --------------------------------------------------
+
+interface NotifPrefsDto {
+	in_app: Record<string, boolean>;
+	email: Record<string, boolean>;
+	digest: 'off' | 'daily' | 'weekly';
+}
+
+/** Every toggle the UI shows, with a human label. */
+const NOTIF_EVENTS: { id: string; label: string; sub: string }[] = [
+	{ id: 'ticket.assigned',   label: 'Ticket assigned to me',          sub: 'When a ticket is assigned to you directly' },
+	{ id: 'ticket.mentioned',  label: 'Mentioned in a comment',          sub: 'When someone @-mentions you on a ticket' },
+	{ id: 'ticket.reply',      label: 'Client replied',                  sub: 'New reply on a ticket you are following' },
+	{ id: 'ticket.resolved',   label: 'Ticket resolved',                 sub: 'Tickets you own or are following are closed' },
+	{ id: 'sla.warning',       label: 'SLA warning (75%)',               sub: 'Clock reaches 75 % on a ticket you own' },
+	{ id: 'sla.breach',        label: 'SLA breach',                      sub: 'Deadline missed on a ticket you own' },
+	{ id: 'visit.assigned',    label: 'Visit assigned to me',            sub: 'A field visit is scheduled for you' },
+	{ id: 'member.invited',    label: 'New team member invited',         sub: 'Admin-only · someone was invited to the workspace' },
+];
+
+const prefsKey = (org: string) => ['org', org, '/notifications/prefs'] as const;
+
+/**
+ * Live notification preferences panel.
+ *
+ * Reads and writes GET/PUT /orgs/:org/notifications/prefs.
+ * Each row has an in-app toggle and an email toggle.
+ * The digest selector controls how often unread notifications are batched.
+ */
+export function LiveNotificationPrefs() {
+	const orgSlug = useAuthStore((s) => s.org!.slug);
+	const queryClient = useQueryClient();
+
+	const query = useQuery({
+		queryKey: prefsKey(orgSlug),
+		queryFn: ({ signal }) =>
+			api.get<NotifPrefsDto>(`/orgs/${orgSlug}/notifications/prefs`, { signal }),
+		enabled: isLiveApi(),
+		staleTime: 60_000,
+	});
+
+	const mutation = useMutation({
+		mutationFn: (prefs: NotifPrefsDto) =>
+			api.put<NotifPrefsDto>(`/orgs/${orgSlug}/notifications/prefs`, { json: prefs }),
+		onSuccess: (saved) => {
+			queryClient.setQueryData(prefsKey(orgSlug), saved);
+			toast('Notification preferences saved', { tone: 'success' });
+		},
+		onError: (err) => {
+			toast(errorMessage(err, 'Could not save notification preferences.'), { tone: 'danger' });
+		},
+	});
+
+	if (query.isPending) {
+		return <Card className="p-6 text-[13px] text-t2">Loading preferences…</Card>;
+	}
+	if (query.isError) {
+		return <Card className="p-6 text-[13px] text-t2">Could not load notification preferences.</Card>;
+	}
+
+	const prefs = query.data;
+
+	const setInApp = (id: string, value: boolean) => {
+		mutation.mutate({ ...prefs, in_app: { ...prefs.in_app, [id]: value } });
+	};
+
+	const setEmail = (id: string, value: boolean) => {
+		mutation.mutate({ ...prefs, email: { ...prefs.email, [id]: value } });
+	};
+
+	const setDigest = (digest: NotifPrefsDto['digest']) => {
+		mutation.mutate({ ...prefs, digest });
+	};
+
+	// Default: on unless explicitly set to false.
+	const inApp = (id: string) => prefs.in_app[id] !== false;
+	const email = (id: string) => prefs.email[id] !== false;
+
+	return (
+		<div className="space-y-4">
+			<Card className="overflow-x-auto">
+				<table className="w-full min-w-[540px] text-[13px]">
+					<thead>
+						<tr className="bg-muted text-left text-[11px] font-semibold tracking-wider text-t2 uppercase">
+							<th className="px-5 py-3">Event</th>
+							<th className="px-4 py-3 text-center">In-app</th>
+							<th className="px-4 py-3 text-center">Email</th>
+						</tr>
+					</thead>
+					<tbody>
+						{NOTIF_EVENTS.map((ev) => (
+							<tr key={ev.id} className="border-t border-border">
+								<td className="px-5 py-3">
+									<b className="block">{ev.label}</b>
+									<span className="text-xs text-t2">{ev.sub}</span>
+								</td>
+								<td className="px-4 py-3 text-center">
+									<Switch
+										size="sm"
+										on={inApp(ev.id)}
+										onChange={(v) => setInApp(ev.id, v)}
+										label={`In-app: ${ev.label}`}
+										disabled={mutation.isPending}
+									/>
+								</td>
+								<td className="px-4 py-3 text-center">
+									<Switch
+										size="sm"
+										on={email(ev.id)}
+										onChange={(v) => setEmail(ev.id, v)}
+										label={`Email: ${ev.label}`}
+										disabled={mutation.isPending}
+									/>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</Card>
+
+			<Card className="p-6">
+				<CardHeader
+					title="Email digest"
+					sub="Instead of one email per event, receive a summary. Sent at the hour configured in your profile timezone."
+				/>
+				<div className="mt-3 flex flex-wrap gap-3">
+					{(['off', 'daily', 'weekly'] as const).map((opt) => (
+						<button
+							key={opt}
+							type="button"
+							onClick={() => setDigest(opt)}
+							disabled={mutation.isPending}
+							className={`rounded-[8px] border px-4 py-2 text-[13px] font-medium capitalize transition-colors ${
+								prefs.digest === opt
+									? 'border-brand-900 bg-brand-900 text-white'
+									: 'border-border text-t2 hover:bg-muted'
+							}`}
+							aria-pressed={prefs.digest === opt}
+						>
+							{opt === 'off' ? 'Real-time (no digest)' : `${opt.charAt(0).toUpperCase()}${opt.slice(1)} digest`}
+						</button>
+					))}
+				</div>
+				<p className="mt-2 text-xs text-t2">
+					{prefs.digest === 'off'
+						? 'Every notification triggers its own email immediately.'
+						: `Notifications are batched into a ${prefs.digest} email. SLA breach alerts always arrive immediately.`}
+				</p>
+			</Card>
+		</div>
 	);
 }
