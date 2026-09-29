@@ -363,7 +363,6 @@ export function LiveNotificationPrefs() {
 										on={inApp(ev.id)}
 										onChange={(v: boolean) => setInApp(ev.id, v)}
 										label={`In-app: ${ev.label}`}
-										disabled={mutation.isPending}
 									/>
 								</td>
 								<td className="px-4 py-3 text-center">
@@ -372,7 +371,6 @@ export function LiveNotificationPrefs() {
 										on={email(ev.id)}
 										onChange={(v: boolean) => setEmail(ev.id, v)}
 										label={`Email: ${ev.label}`}
-										disabled={mutation.isPending}
 									/>
 								</td>
 							</tr>
