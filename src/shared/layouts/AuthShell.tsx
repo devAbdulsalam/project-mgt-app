@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { TicketWatermark, Wordmark } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
 import { Link } from '@tanstack/react-router';
+import smilingBg from '@/assets/smiling.jpg';
 
 /**
  * Split auth layout: dark brand panel on the left (hidden below lg), form on the right.
@@ -10,7 +11,14 @@ import { Link } from '@tanstack/react-router';
 export function AuthShell({ panel, children, wide, alignTop, footer, badge }: { panel: ReactNode; children: ReactNode; wide?: boolean; alignTop?: boolean; footer?: ReactNode; badge?: ReactNode }) {
 	return (
 		<div className="grid min-h-full lg:grid-cols-2">
-			<aside className="relative hidden flex-col overflow-hidden bg-[linear-gradient(160deg,var(--color-brand-900),var(--color-brand-950))] p-12 text-white lg:flex xl:p-14">
+			<aside
+				className="relative hidden flex-col overflow-hidden p-12 text-white lg:flex xl:p-14"
+				style={{
+					backgroundImage: `linear-gradient(160deg, rgba(22,48,58,0.88) 0%, rgba(30,58,71,0.78) 45%, rgba(46,111,134,0.55) 100%), url(${smilingBg})`,
+					backgroundSize: 'cover',
+					backgroundPosition: 'center',
+				}}
+			>
 				<div className="flex items-center">
 					<Link to="/" className="shrink-0" aria-label="Ledge Desk home">
 						<Wordmark light={false} />
