@@ -10,7 +10,7 @@ import { useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { KeyRound, Copy, Trash2 } from 'lucide-react';
 import { api } from '@/api';
-import { Button, Card, CardHeader, Dialog, Field, Input, LabelChip } from '@/shared/ui';
+import { Button, Card, CardHeader, Dialog, Field, Input, LabelChip, Switch } from '@/shared/ui';
 import { useAuthStore } from '@/shared/lib/auth-store';
 import { isLiveApi } from '@/shared/lib/live-api';
 import { toast } from '@/shared/lib/toast-store';
@@ -361,7 +361,7 @@ export function LiveNotificationPrefs() {
 									<Switch
 										size="sm"
 										on={inApp(ev.id)}
-										onChange={(v) => setInApp(ev.id, v)}
+										onChange={(v: boolean) => setInApp(ev.id, v)}
 										label={`In-app: ${ev.label}`}
 										disabled={mutation.isPending}
 									/>
@@ -370,7 +370,7 @@ export function LiveNotificationPrefs() {
 									<Switch
 										size="sm"
 										on={email(ev.id)}
-										onChange={(v) => setEmail(ev.id, v)}
+										onChange={(v: boolean) => setEmail(ev.id, v)}
 										label={`Email: ${ev.label}`}
 										disabled={mutation.isPending}
 									/>
