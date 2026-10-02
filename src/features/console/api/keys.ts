@@ -24,7 +24,8 @@ export const userKeys = {
 export const orgKeys = {
 	all: ['super-admin', 'orgs'] as const,
 	lists: ['super-admin', 'orgs', 'list'] as const,
-	list: (search: string | undefined, limit: number, offset: number) => ['super-admin', 'orgs', 'list', { search: search ?? null, limit, offset }] as const,
+	list: (search: string | undefined, review: string | undefined, limit: number, offset: number) =>
+		['super-admin', 'orgs', 'list', { search: search ?? null, review: review ?? null, limit, offset }] as const,
 	detail: (slug: string) => ['super-admin', 'orgs', 'detail', slug] as const,
 } as const;
 

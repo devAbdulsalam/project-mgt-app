@@ -44,7 +44,11 @@ function useRestoredSession(): boolean {
 				// gets through will refresh the token; signing out here would punish a
 				// bad connection.
 				if (session === 'unreachable') return;
-				if (session?.org) {
+				if (session) {
+					// A session with no workspace is still a session: someone who
+					// signed up but has not created one yet. Signing them out here
+					// would strand them — the page that lets them create a workspace
+					// needs them signed in to call it.
 					store.hydrate({ user: session.user, org: session.org, orgs: session.orgs, permissions: session.permissions });
 				} else {
 					// The cookie is gone or was revoked; drop the persisted shell of a

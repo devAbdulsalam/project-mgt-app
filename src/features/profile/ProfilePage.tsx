@@ -195,6 +195,26 @@ function SecuritySection({ user }: { user: User }) {
 	const now = useNow(60_000);
 	const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
 	const [err, setErr] = useState<string>();
+	const saveProfile = useSaveProfile();
+
+	/**
+	 * Turning the second factor on or off.
+	 *
+	 * The switch reflects the store, and the store is only written from the
+	 * server's answer, so a rejected change snaps back rather than leaving the
+	 * UI claiming something the account does not do.
+	 */
+	const setTwoFactor = async (on: boolean) => {
+		try {
+			await saveProfile({ two_factor_enabled: on });
+			toast(on ? 'Two-step verification on' : 'Two-step verification off', {
+				tone: on ? 'success' : 'default',
+				description: on ? 'We will email a code each time you sign in.' : 'Your password alone will sign you in.',
+			});
+		} catch (e) {
+			toast(e instanceof ApiError ? e.message : 'Could not change that setting', { tone: 'danger' });
+		}
+	};
 	const revoke = async (id: string) => {
 		try {
 			await api.del(`/auth/sessions/${id}`);
@@ -237,7 +257,7 @@ function SecuritySection({ user }: { user: User }) {
 				</div>
 			</Card>
 			<div className="space-y-4">
-				<Card className="p-6"><CardHeader title="Two-step verification" />{live ? <p className="mt-3 text-[13px] text-t2">Not available yet. Sign-in uses your password plus an emailed one-time code.</p> : <><label className="mt-3 flex items-center gap-3 text-[13px]"><Switch on={user.twoFactor ?? true} onChange={(v) => { updateUser({ twoFactor: v }); toast(v ? '2FA enabled' : '2FA disabled', { tone: v ? 'success' : 'danger' }); }} label="Two-step verification" /> Authenticator app · WhatsApp/SMS backup</label><Button size="sm" className="mt-3" onClick={() => toast('Recovery codes', { description: 'Downloaded 8 one-time codes.' })}>Recovery codes</Button></>}</Card>
+				<Card className="p-6"><CardHeader title="Two-step verification" sub={live ? 'Ask for an emailed code as well as your password when you sign in.' : undefined} />{live ? <label className="mt-3 flex items-center gap-3 text-[13px]"><Switch on={user.twoFactor ?? false} onChange={(v) => { void setTwoFactor(v); }} label="Two-step verification" /> Email a one-time code at sign-in</label> : <><label className="mt-3 flex items-center gap-3 text-[13px]"><Switch on={user.twoFactor ?? true} onChange={(v) => { updateUser({ twoFactor: v }); toast(v ? '2FA enabled' : '2FA disabled', { tone: v ? 'success' : 'danger' }); }} label="Two-step verification" /> Authenticator app · WhatsApp/SMS backup</label><Button size="sm" className="mt-3" onClick={() => toast('Recovery codes', { description: 'Downloaded 8 one-time codes.' })}>Recovery codes</Button></>}</Card>
 				<Card className="p-6"><CardHeader title="Active sessions" />{live ? <ul className="mt-2 divide-y divide-border text-[13px]">{devices.isPending ? <li className="py-2.5 text-t2">Loading…</li> : (devices.data ?? []).map((dv) => <li key={dv.id} className="flex items-center gap-3 py-2.5"><span className="min-w-0 flex-1">{describeDevice(dv.user_agent)}<span className="block text-xs text-t2">{dv.ip ? `${dv.ip} · ` : ''}{dv.current ? 'now' : relativeTime(Date.parse(dv.last_active_at), now)}</span></span>{dv.current ? <Pill tone="done">Current</Pill> : <Button size="sm" variant="ghost" onClick={() => { void revoke(dv.id); }}>Revoke</Button>}</li>)}</ul> : <ul className="mt-2 divide-y divide-border text-[13px]">{[['This browser · Lagos', 'now', true], ['Engineer app · iPhone', '3 min ago', false]].map(([l, t, cur]) => <li key={l as string} className="flex items-center gap-3 py-2.5"><span className="min-w-0 flex-1">{l as string}<span className="block text-xs text-t2">{t as string}</span></span>{cur ? <Pill tone="done">Current</Pill> : <Button size="sm" variant="ghost" onClick={() => toast('Session revoked', { tone: 'success' })}>Revoke</Button>}</li>)}</ul>}</Card>
 			</div>
 		</div>

@@ -61,8 +61,14 @@ interface AuthState {
 	login: (input: { email: string; password: string; remember: boolean }) => Promise<{ requiresOtp: boolean; phone: string }>;
 	verifyOtp: (code: string) => Promise<Org>;
 	resendOtp: () => Promise<void>;
-	/** Replaces the session after a live restore on page load. */
-	hydrate: (session: { user: User; org: Org; orgs: Org[]; permissions?: string[] }) => void;
+	/**
+	 * Replaces the session after a live restore on page load.
+	 *
+	 * `org` is nullable because an account can legitimately have no workspace —
+	 * someone who signed up and has not created one yet. They are still signed
+	 * in; the router is what decides where a person without a workspace goes.
+	 */
+	hydrate: (session: { user: User; org: Org | null; orgs: Org[]; permissions?: string[] }) => void;
 	switchOrg: (orgId: string) => void;
 	updateUser: (patch: Partial<User>) => void;
 	logout: () => void;
@@ -78,6 +84,11 @@ interface AuthState {
 	registerAccount: (password: string) => Promise<void>;
 	/** Sends a fresh confirmation code to the address on the signup draft. */
 	resendSignupCode: () => Promise<void>;
+	/**
+	 * Creates the workspace the wizard collected and makes the caller its owner.
+	 * Resolves with the workspace, which is usable immediately.
+	 */
+	createWorkspace: () => Promise<Org>;
 	/** Confirms the address. Resolves with the workspace the account already belongs to, if any. */
 	verifySignupOtp: (code: string) => Promise<Org | null>;
 	completeSignup: (invites?: { email: string; role: string }[]) => Promise<SignupOutcome>;
@@ -115,11 +126,20 @@ export const useAuthStore = create<AuthState>()(
 			async login({ email, password, remember }) {
 				if (isLiveApi()) {
 					try {
-						const { phone } = await live.login(email.trim(), password);
+						const result = await live.login(email.trim(), password);
+
+						// A second factor is opt-in, so most sign-ins finish here and the
+						// OTP screen is never shown.
+						if (!result.requiresOtp) {
+							const { user, org, orgs: available, permissions } = result.session;
+							set({ status: 'authenticated', user, org, availableOrgs: available, permissions, pendingLogin: null });
+							return { requiresOtp: false, phone: '' };
+						}
+
 						// The real identity is not known until the code is verified;
 						// only the email is needed to carry to the next screen.
-						set({ pendingLogin: { userId: '', orgId: '', phone, remember, email: email.trim() } });
-						return { requiresOtp: true, phone };
+						set({ pendingLogin: { userId: '', orgId: '', phone: result.phone, remember, email: email.trim() } });
+						return { requiresOtp: true, phone: result.phone };
 					} catch (err) {
 						const { message, field } = live.messageFor(err, 'We could not sign you in.');
 						throw new AuthError(message, field);
@@ -230,6 +250,65 @@ export const useAuthStore = create<AuthState>()(
 				}
 
 				await sleep(LATENCY);
+			},
+
+			async createWorkspace() {
+				const d = get().signup;
+
+				if (isLiveApi()) {
+					try {
+						const { org } = await live.createWorkspace({
+							name: d.companyName,
+							slug: d.slug,
+							industry: d.industry,
+							teamSize: d.teamSize,
+							headOffice: d.headOffice,
+							modules: d.modules,
+							planId: d.planId,
+						});
+						// Owner of a brand-new workspace: the permission set is whatever
+						// the server says it is, so /auth/me is the authority rather than
+						// anything derived from the role here.
+						const session = await live.fetchMe();
+						set({
+							status: 'authenticated',
+							user: session.user,
+							org: session.org ?? org,
+							availableOrgs: session.orgs.length ? session.orgs : [org],
+							permissions: session.permissions,
+						});
+						return session.org ?? org;
+					} catch (err) {
+						const { message, field } = live.messageFor(err, 'We could not create your workspace.');
+						throw new AuthError(message, field);
+					}
+				}
+
+				await sleep(LATENCY);
+				const org: Org = {
+					id: `org_${d.slug}`,
+					slug: d.slug || 'workspace',
+					name: d.companyName || 'My workspace',
+					industry: d.industry,
+					timezone: 'Africa/Lagos',
+					timezoneLabel: 'West Africa Time',
+					currency: 'NGN',
+					cities: [d.headOffice.replace(/\s*\(.*\)$/, '')],
+					trialDaysLeft: 14,
+					setupStepsDone: 2,
+					setupStepsTotal: 5,
+					invitesAccepted: 0,
+					invitesSent: 0,
+				};
+				const user: User = get().user ?? {
+					id: `u_${d.email}`,
+					name: `${d.firstName} ${d.lastName}`.trim() || 'New user',
+					email: d.email,
+					role: 'Admin',
+					avatarTint: 'teal',
+				};
+				set({ status: 'authenticated', user, org, availableOrgs: [org] });
+				return org;
 			},
 
 			async resendSignupCode() {

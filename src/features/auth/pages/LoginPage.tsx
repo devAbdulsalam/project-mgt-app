@@ -54,8 +54,18 @@ export function LoginPage() {
 	const onSubmit = form.handleSubmit(async (values) => {
 		setFormError(undefined);
 		try {
-			await login(values);
-			navigate({ to: '/login/verify', search: { redirect } });
+			const { requiresOtp } = await login(values);
+
+			// Only accounts that asked for a second factor see the code screen.
+			if (requiresOtp) {
+				navigate({ to: '/login/verify', search: { redirect } });
+				return;
+			}
+
+			const org = useAuthStore.getState().org;
+			if (redirect) navigate({ to: redirect });
+			else if (org) navigate({ to: '/$org/dashboard', params: { org: org.slug }, search: {} });
+			else navigate({ to: '/signup/workspace' });
 		} catch (e) {
 			if (e instanceof AuthError && e.field && e.field !== 'code')
 				form.setError(e.field, { message: e.message });

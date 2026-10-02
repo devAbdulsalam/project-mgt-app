@@ -105,6 +105,11 @@ export interface OffsetPageDto<T> {
 	offset: number;
 }
 
+/** The orgs listing carries the review-queue size so the console can badge it. */
+export interface OrgsPageDto extends OffsetPageDto<AdminOrgDto> {
+	pending_review: number;
+}
+
 export interface PasswordResetSentDto {
 	sent_to: string;
 }
@@ -129,6 +134,10 @@ export interface AdminOrgDto {
 	suspended: boolean;
 	suspended_at: string | null;
 	suspended_reason: string | null;
+	/** 'pending' until an operator has looked at a self-serve workspace. */
+	review_status: 'pending' | 'approved' | 'rejected';
+	reviewed_at: string | null;
+	review_note: string | null;
 	member_count: number;
 	created_at: string;
 }

@@ -71,6 +71,8 @@ export interface OffsetPage<T> {
 	total: number;
 	limit: number;
 	offset: number;
+	/** Orgs only: how many workspaces are waiting to be reviewed, unfiltered. */
+	pendingReview?: number;
 }
 
 export interface AdminOrg {
@@ -82,6 +84,9 @@ export interface AdminOrg {
 	suspended: boolean;
 	suspendedAt: number | null;
 	suspendedReason: string | null;
+	reviewStatus: ReviewStatus;
+	reviewedAt: number | null;
+	reviewNote: string | null;
 	memberCount: number;
 	createdAt: number;
 }
@@ -132,7 +137,10 @@ export const usersSearchSchema = z.object({
 	limit: pageSize,
 });
 
+export type ReviewStatus = 'pending' | 'approved' | 'rejected';
+
 export const orgsSearchSchema = z.object({
+	review: z.enum(['pending', 'approved', 'rejected']).optional(),
 	q: trimmed.optional(),
 	page: z.coerce.number().int().min(1).default(1),
 	limit: pageSize,

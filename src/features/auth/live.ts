@@ -141,16 +141,31 @@ export function messageFor(err: unknown, fallback: string): { message: string; f
 }
 
 /**
- * Step one: prove the password, then send a one-time code.
+ * Signs in with a password.
  *
- * Two calls rather than one because the app's sign-in is two screens. Checking
- * the password first means it is genuinely required — sending only the code
- * would make the password field decorative.
+ * Most accounts are signed in at this point and the session comes back with the
+ * response. An account whose owner has turned on a second factor gets
+ * `requires_otp` instead, with no session and no refresh cookie — the server
+ * sends a code and the caller goes on to the OTP screen. The server decides,
+ * not the client: the code is only a second factor if the password alone buys
+ * nothing, so the client is never in a position to skip it.
  */
-export async function login(email: string, password: string): Promise<{ phone: string }> {
-	await api.post<SessionResponse>('/auth/login', { json: { email, password } });
-	const otp = await api.post<{ requires_otp: boolean; phone: string | null }>('/auth/otp/send', { json: { email } });
-	return { phone: otp.phone ?? '' };
+export async function login(
+	email: string,
+	password: string,
+): Promise<{ requiresOtp: true; phone: string } | { requiresOtp: false; session: Session }> {
+	const res = await api.post<SessionResponse & { requires_otp?: boolean; phone?: string | null }>('/auth/login', {
+		json: { email, password },
+	});
+
+	if (res.requires_otp) return { requiresOtp: true, phone: res.phone ?? '' };
+
+	useTokenStore.getState().setTokens({
+		accessToken: res.access_token,
+		expiresAt: Date.parse(res.expires_at),
+	});
+
+	return { requiresOtp: false, session: await fetchMe() };
 }
 
 /** Step two: exchange the code for the session the app will actually use. */
@@ -315,4 +330,86 @@ export async function inviteMembers(
 				? messageFor(result.reason, 'That invitation could not be sent.').message
 				: undefined,
 	}));
+}
+
+// ---------------------------------------------------------------------------
+// Creating a workspace
+// ---------------------------------------------------------------------------
+
+export interface CreateWorkspaceInput {
+	name: string;
+	slug: string;
+	industry?: string;
+	teamSize?: string;
+	headOffice?: string;
+	modules?: string[];
+	planId?: string;
+}
+
+interface CreatedWorkspace {
+	id: string;
+	slug: string;
+	name: string;
+	prefix: string | null;
+	plan: string;
+	role: string;
+	review_status: string;
+	created_at: string;
+}
+
+/**
+ * Creates the workspace the signup wizard collected, with the caller as owner.
+ *
+ * It is usable straight away: an operator reviews it afterwards, and is emailed
+ * by the server when it is created. So there is nothing to wait for here — the
+ * caller goes to the dashboard.
+ *
+ * The prefix is derived rather than asked for. The wizard never collected one,
+ * and the server only uses it as the default ticket key for new projects, so
+ * guessing from the name is better than leaving every project to start at `P`.
+ */
+export async function createWorkspace(input: CreateWorkspaceInput): Promise<{ org: Org; reviewPending: boolean }> {
+	const created = await api.post<CreatedWorkspace>('/orgs', {
+		json: {
+			name: input.name,
+			slug: input.slug,
+			prefix: prefixFrom(input.name),
+			industry: input.industry,
+			team_size: input.teamSize,
+			head_office: input.headOffice,
+			modules: input.modules,
+			plan_id: input.planId,
+		},
+		idempotencyKey: crypto.randomUUID(),
+	});
+
+	return {
+		org: toOrg({
+			id: created.id,
+			slug: created.slug,
+			name: created.name,
+			prefix: created.prefix,
+			plan: created.plan,
+			role: created.role,
+			industry: input.industry,
+			cities: input.headOffice ? [input.headOffice.replace(/\s*\(.*\)$/, '')] : [],
+		}),
+		reviewPending: created.review_status === 'pending',
+	};
+}
+
+/** 'Kolanut Systems' -> 'KS'. Falls back to the first letters of one word. */
+function prefixFrom(name: string): string | undefined {
+	const letters = name
+		.split(/\s+/)
+		.map((w) => w.replace(/[^a-zA-Z0-9]/g, ''))
+		.filter(Boolean);
+	if (!letters.length) return undefined;
+
+	const initials = letters.length > 1 ? letters.map((w) => w[0]!).join('') : letters[0]!.slice(0, 3);
+	const prefix = initials.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+
+	// The server's CHECK wants a leading letter; anything else it would reject
+	// is better dropped than sent, since the prefix is only a convenience.
+	return /^[A-Z][A-Z0-9]{0,9}$/.test(prefix) ? prefix : undefined;
 }

@@ -34,13 +34,17 @@
 
 import { useState } from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { ShieldCheck } from 'lucide-react';
+import { Mail, ShieldCheck } from 'lucide-react';
 import { api } from '@/api';
 import { Button, Card, Field, Input } from '@/shared/ui';
 import { PasswordInput } from '@/features/auth/components/PasswordInput';
 import { useTokenStore } from '@/shared/lib/token-store';
 import { messageFor } from '@/features/auth/live';
 import { useConsoleStore } from '../store';
+import {
+	ConsoleAuthBackdrop,
+	ConsoleInternalBadge,
+} from '../components/ConsoleAuthBackdrop';
 
 interface LoginResponse {
 	access_token: string;
@@ -63,11 +67,16 @@ export function ConsoleSignInPage() {
 		setError(undefined);
 		setField(undefined);
 		try {
-			const session = await api.post<LoginResponse>('/auth/login', { json: { email: email.trim(), password } });
+			const session = await api.post<LoginResponse>('/auth/login', {
+				json: { email: email.trim(), password },
+			});
 
 			// Before the store is consulted: `establish` short-circuits to the
 			// refresh cookie when there is no token, and there is one here.
-			useTokenStore.getState().setTokens({ accessToken: session.access_token, expiresAt: Date.parse(session.expires_at) });
+			useTokenStore.getState().setTokens({
+				accessToken: session.access_token,
+				expiresAt: Date.parse(session.expires_at),
+			});
 
 			// A correct password proves the account exists, not that it may use this
 			// surface. `establish` asks the server, and lands on the console, on
@@ -77,87 +86,117 @@ export function ConsoleSignInPage() {
 		} catch (err) {
 			const result = messageFor(err, 'We could not sign you in.');
 			setError(result.message);
-			setField(result.field === 'password' ? 'password' : result.field === 'email' ? 'email' : undefined);
+			setField(
+				result.field === 'password'
+					? 'password'
+					: result.field === 'email'
+						? 'email'
+						: undefined,
+			);
 		} finally {
 			setBusy(false);
 		}
 	};
 
 	return (
-		<div className="grid min-h-[100dvh] place-items-center bg-brand-900 px-5 py-10">
-			<Card className="w-full max-w-[420px] p-7">
-				<div className="flex items-center gap-2.5">
-					<span className="grid size-9 place-items-center rounded-sm bg-brand-900 text-white">
-						<ShieldCheck size={18} />
-					</span>
-					<div>
-						<h1 className="text-base font-semibold text-t1">Ledge console</h1>
-						<p className="text-xs text-t2">Platform operators only</p>
+		<ConsoleAuthBackdrop>
+			<Card className="w-full max-w-105 mx-auto overflow-hidden p-0">
+				<div
+					className="h-1 bg-linear-to-r from-brand-700 via-brand-600 to-brand-800"
+					aria-hidden
+				/>
+				<div className="p-7">
+					<div className="flex items-center gap-2.5">
+						<span className="grid size-9 place-items-center rounded-sm bg-brand-900 text-white">
+							<ShieldCheck size={18} />
+						</span>
+						<div className="min-w-0">
+							<div className="flex items-center gap-2">
+								<h1 className="text-base font-semibold text-t1">
+									Ledge console
+								</h1>
+								<ConsoleInternalBadge />
+							</div>
+							<p className="text-xs text-t2">Platform operators only</p>
+						</div>
 					</div>
+
+					<form
+						className="mt-6 space-y-4"
+						onSubmit={(e) => {
+							e.preventDefault();
+							void submit();
+						}}
+					>
+						<Field label="Email" error={field === 'email' ? error : undefined}>
+							{(id, describedBy) => (
+								<Input
+									id={id}
+									type="email"
+									autoComplete="username"
+									autoFocus
+									required
+									value={email}
+									aria-describedby={describedBy}
+									invalid={field === 'email'}
+									onChange={(e) => setEmail(e.target.value)}
+									placeholder="you@ledge.com"
+									leading={<Mail size={15} />}
+								/>
+							)}
+						</Field>
+
+						<Field
+							label="Password"
+							error={field === 'password' ? error : undefined}
+						>
+							{(id, describedBy) => (
+								<PasswordInput
+									id={id}
+									autoComplete="current-password"
+									required
+									value={password}
+									aria-describedby={describedBy}
+									invalid={field === 'password'}
+									onChange={(e) => setPassword(e.target.value)}
+								/>
+							)}
+						</Field>
+
+						{error && !field ? (
+							<p role="alert" className="text-xs text-danger">
+								{error}
+							</p>
+						) : null}
+
+						<Button
+							type="submit"
+							variant="primary"
+							size="lg"
+							block
+							loading={busy}
+							disabled={!email.trim() || !password}
+						>
+							Sign in
+						</Button>
+					</form>
+
+					<p className="mt-5 text-[11px] leading-relaxed text-t3">
+						You will be asked for a code from your authenticator next. If you
+						have not set one up yet, the console will take you through enrolment
+						first — it cannot be skipped.
+					</p>
+
+					<p className="mt-4 border-t border-border pt-4 text-[11px] leading-relaxed text-t3">
+						Not an operator?{' '}
+						<Link to="/login" className="text-brand-900 underline">
+							Sign in to Ledge
+						</Link>{' '}
+						instead. Every action in this console is recorded against your
+						account.
+					</p>
 				</div>
-
-				<form
-					className="mt-6 space-y-4"
-					onSubmit={(e) => {
-						e.preventDefault();
-						void submit();
-					}}
-				>
-					<Field label="Email" error={field === 'email' ? error : undefined}>
-						{(id, describedBy) => (
-							<Input
-								id={id}
-								type="email"
-								autoComplete="username"
-								autoFocus
-								required
-								value={email}
-								aria-describedby={describedBy}
-								invalid={field === 'email'}
-								onChange={(e) => setEmail(e.target.value)}
-								placeholder="you@ledge.com"
-							/>
-						)}
-					</Field>
-
-					<Field label="Password" error={field === 'password' ? error : undefined}>
-						{(id, describedBy) => (
-							<PasswordInput
-								id={id}
-								autoComplete="current-password"
-								required
-								value={password}
-								aria-describedby={describedBy}
-								invalid={field === 'password'}
-								onChange={(e) => setPassword(e.target.value)}
-							/>
-						)}
-					</Field>
-
-					{error && !field ? (
-						<p role="alert" className="text-xs text-danger">
-							{error}
-						</p>
-					) : null}
-
-					<Button type="submit" variant="primary" size="lg" block loading={busy} disabled={!email.trim() || !password}>
-						Sign in
-					</Button>
-				</form>
-
-				<p className="mt-5 text-[11px] leading-relaxed text-t3">
-					You will be asked for a code from your authenticator next. If you have not set one up yet, the console will take you
-					through enrolment first — it cannot be skipped.
-				</p>
-
-				<p className="mt-4 border-t border-border pt-4 text-[11px] leading-relaxed text-t3">
-					Not an operator?{' '}
-					<Link to="/login" className="text-brand-900 underline">
-						Sign in to Ledge
-					</Link>{' '}
-					instead. Every action in this console is recorded against your account.
-				</p>
 			</Card>
-		</div>
+		</ConsoleAuthBackdrop>
 	);
 }

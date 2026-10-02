@@ -32,6 +32,7 @@ import { BellPopover } from '@/features/notifications/components/BellPopover';
 import { useUnreadCount } from '@/features/notifications/api';
 import { sidebarNav, mobileTabs } from './nav';
 import { LogoutDialog } from './LogoutDialog';
+import patternBg from '@/assets/patterns/pattern4.png';
 
 export interface PageMeta {
 	title: string;
@@ -66,6 +67,16 @@ export function AppShell({
 				<main
 					id="main"
 					className="min-h-0 flex-1 overflow-y-auto pb-[calc(var(--spacing-tabbar)+env(safe-area-inset-bottom))] lg:pb-0"
+					style={{
+						// A different pattern from the console's and the auth pages' — this
+						// is the surface a tenant user spends their whole day looking at, so
+						// it stays the most restrained of the three: washed into the same
+						// canvas colour the page already used, purely as texture.
+						backgroundImage: `linear-gradient(rgba(244, 245, 247, .96), rgba(244, 245, 247, .96)), url(${patternBg})`,
+						backgroundSize: 'auto, 280px 280px',
+						backgroundRepeat: 'no-repeat, repeat',
+						backgroundPosition: 'center, center',
+					}}
 				>
 					<div className="mx-auto max-w-[1600px] p-4 lg:p-6">{children}</div>
 				</main>

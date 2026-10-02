@@ -29,8 +29,15 @@ import { useConsoleStore } from '../store';
 import { useOperatorHeartbeat } from '../hooks/useOperatorHeartbeat';
 import { ELEVATION_MINUTES } from '../model';
 import { ConsoleShell } from './ConsoleShell';
+import { ConsoleAuthBackdrop } from './ConsoleAuthBackdrop';
 
-export function ConsoleGate({ children, requireFactor = true }: { children: ReactNode; requireFactor?: boolean }) {
+export function ConsoleGate({
+	children,
+	requireFactor = true,
+}: {
+	children: ReactNode;
+	requireFactor?: boolean;
+}) {
 	const state = useConsoleStore((s) => s.state);
 	const operator = useConsoleStore((s) => s.operator);
 	const reason = useConsoleStore((s) => s.reason);
@@ -48,7 +55,8 @@ export function ConsoleGate({ children, requireFactor = true }: { children: Reac
 		if (state === 'checking') void establish();
 	}, [state, establish]);
 
-	if (state === 'checking') return <FullPageWait label="Checking your access…" />;
+	if (state === 'checking')
+		return <FullPageWait label="Checking your access…" />;
 
 	if (state === 'signed-out') {
 		// The sign-in screen is a route, not a branch here, so it can own its own
@@ -58,14 +66,19 @@ export function ConsoleGate({ children, requireFactor = true }: { children: Reac
 	}
 
 	if (state === 'not-an-operator') {
-		return <NotAnOperator message={reason ?? 'That account is not a platform operator.'} />;
+		return (
+			<NotAnOperator
+				message={reason ?? 'That account is not a platform operator.'}
+			/>
+		);
 	}
 
 	if (!operator) return <FullPageWait label="Checking your access…" />;
 
 	// No second factor: nothing past this point can work, and the security page
 	// is the only route that does not need one.
-	if (requireFactor && !operator.totpEnrolled) return <FactorRequired name={operator.name || operator.email} />;
+	if (requireFactor && !operator.totpEnrolled)
+		return <FactorRequired name={operator.name || operator.email} />;
 
 	return <ConsoleShell>{children}</ConsoleShell>;
 }
@@ -74,26 +87,34 @@ export function ConsoleGate({ children, requireFactor = true }: { children: Reac
 
 function FullPageWait({ label }: { label: string }) {
 	return (
-		<div className="grid min-h-[100dvh] place-items-center bg-muted">
-			<div className="flex items-center gap-2.5 text-sm text-t2">
+		<ConsoleAuthBackdrop>
+			<div className="flex items-center gap-2.5 text-sm text-white/80 mx-auto">
 				<Loader2 className="animate-spin" size={16} aria-hidden />
 				{label}
 			</div>
-		</div>
+		</ConsoleAuthBackdrop>
 	);
 }
 
 function SignedOut({ reason }: { reason: string | null }) {
 	return (
-		<div className="grid min-h-[100dvh] place-items-center bg-muted px-5">
-			<Card className="w-full max-w-[420px] p-7 text-center">
-				<h1 className="text-base font-semibold text-t1">Your session has ended</h1>
-				<p className="mt-2 text-[13px] text-t2">{reason ?? 'Sign in again to use the console.'}</p>
+		<ConsoleAuthBackdrop>
+			<Card className="w-full max-w-105 mx-auto p-7 text-center">
+				<h1 className="text-base font-semibold text-t1">
+					Your session has ended
+				</h1>
+				<p className="mt-2 text-[13px] text-t2">
+					{reason ?? 'Sign in again to use the console.'}
+				</p>
 				{/* A link, not a retry: this branch means the refresh cookie is already
 				    dead, so `establish` would only land back here. Retrying is the right
 				    response to a *network* failure, and that is what the reason below it
 				    says — which is why both are offered. */}
-				<Link to="/console/sign-in" search={{}} className="mt-5 block no-underline">
+				<Link
+					to="/console/sign-in"
+					search={{}}
+					className="mt-5 block no-underline"
+				>
 					<Button variant="primary" size="lg" block>
 						Sign in
 					</Button>
@@ -108,28 +129,37 @@ function SignedOut({ reason }: { reason: string | null }) {
 					</button>
 				) : null}
 			</Card>
-		</div>
+		</ConsoleAuthBackdrop>
 	);
 }
 
 function NotAnOperator({ message }: { message: string }) {
 	return (
-		<div className="grid min-h-[100dvh] place-items-center bg-muted px-5">
-			<Card className="w-full max-w-[460px] p-7">
+		<ConsoleAuthBackdrop>
+			<Card className="w-full max-w-115 mx-auto p-7">
 				<span className="grid size-9 place-items-center rounded-full bg-danger-bg text-danger-fg">
 					<ShieldAlert size={18} />
 				</span>
-				<h1 className="mt-3.5 text-base font-semibold text-t1">You are signed in, but not an operator</h1>
+				<h1 className="mt-3.5 text-base font-semibold text-t1">
+					You are signed in, but not an operator
+				</h1>
 				<p className="mt-2 text-[13px] leading-relaxed text-t2">{message}</p>
 				<p className="mt-3 text-[12px] leading-relaxed text-t3">
-					The console is limited to accounts with a platform role. If you need one, ask an existing admin — granting standing
-					is itself an audited action, and an operator cannot grant it to themselves.
+					The console is limited to accounts with a platform role. If you need
+					one, ask an existing admin — granting standing is itself an audited
+					action, and an operator cannot grant it to themselves.
 				</p>
-				<Button variant="secondary" size="lg" className="mt-5" onClick={() => (window.location.href = '/')} block>
+				<Button
+					variant="secondary"
+					size="lg"
+					className="mt-5"
+					onClick={() => (window.location.href = '/')}
+					block
+				>
 					Go to Ledge
 				</Button>
 			</Card>
-		</div>
+		</ConsoleAuthBackdrop>
 	);
 }
 
@@ -142,29 +172,37 @@ function NotAnOperator({ message }: { message: string }) {
  */
 function FactorRequired({ name }: { name: string }) {
 	return (
-		<div className="grid min-h-[100dvh] place-items-center bg-muted px-5">
-			<Card className="w-full max-w-[480px] p-7">
+		<ConsoleAuthBackdrop>
+			<Card className="w-full max-w-120 mx-auto p-7">
 				<span className="grid size-9 place-items-center rounded-full bg-brand-100 text-brand-900">
 					<ShieldAlert size={18} />
 				</span>
-				<h1 className="mt-3.5 text-base font-semibold text-t1">Add a second factor first</h1>
+				<h1 className="mt-3.5 text-base font-semibold text-t1">
+					Add a second factor first
+				</h1>
 				<p className="mt-2 text-[13px] leading-relaxed text-t2">
-					Hi {name.split(' ')[0] || 'there'} — the console needs an authenticator app before it will do anything. It takes
-					about a minute, and it is the only thing protecting every account on the platform.
+					Hi {name.split(' ')[0] || 'there'} — the console needs an
+					authenticator app before it will do anything. It takes about a minute,
+					and it is the only thing protecting every account on the platform.
 				</p>
 				{/* A client-side Link, not window.location: a full reload would throw away
 				    the in-memory access token and make the operator re-establish the
 				    session from the cookie for no reason. */}
-				<Link to="/console/security" search={{}} className="mt-5 block no-underline">
+				<Link
+					to="/console/security"
+					search={{}}
+					className="mt-5 block no-underline"
+				>
 					<Button variant="primary" size="lg" block>
 						Set up an authenticator
 					</Button>
 				</Link>
 				<p className="mt-4 text-[11px] leading-relaxed text-t3">
-					You will need any app that generates time-based codes — Aegis, 1Password, Bitwarden and Google Authenticator all
-					work. Codes are checked for {ELEVATION_MINUTES} minutes at a time.
+					You will need any app that generates time-based codes — Aegis,
+					1Password, Bitwarden and Google Authenticator all work. Codes are
+					checked for {ELEVATION_MINUTES} minutes at a time.
 				</p>
 			</Card>
-		</div>
+		</ConsoleAuthBackdrop>
 	);
 }

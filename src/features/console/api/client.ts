@@ -36,11 +36,13 @@ import type {
 	MembershipDto,
 	OffsetPageDto,
 	OperatorDto,
+	OrgsPageDto,
 	PasswordResetSentDto,
 	SetOperatorRoleDto,
 	SignOutDto,
 } from './dto';
 import type { MemberRole, Plan, PlatformRole } from './dto';
+import type { ReviewStatus } from '../model';
 
 const ROOT = '/super-admin';
 
@@ -104,8 +106,20 @@ export const superAdminApi = {
 
 	// -- Workspaces ----------------------------------------------------------
 
-	orgs: (search: string | undefined, limit: number, offset: number, signal?: AbortSignal) =>
-		api.get<OffsetPageDto<AdminOrgDto>>(`${ROOT}/orgs`, listParams(search, limit, offset, signal)),
+	orgs: (search: string | undefined, review: ReviewStatus | undefined, limit: number, offset: number, signal?: AbortSignal) =>
+		api.get<OrgsPageDto>(`${ROOT}/orgs`, {
+			...listParams(search, limit, offset, signal),
+			query: { search: search || undefined, review, limit, offset },
+		}),
+
+	/**
+	 * Records a decision on a self-serve workspace.
+	 *
+	 * Rejecting suspends it, so `note` is what its owner is told and the server
+	 * refuses a rejection without one.
+	 */
+	reviewOrg: (slug: string, status: 'approved' | 'rejected', note: string | null) =>
+		api.post<AdminOrgDto>(`${ROOT}/orgs/${encodeURIComponent(slug)}/review`, { json: { status, note } }),
 
 	/** Creates a workspace and makes an existing account its owner, atomically. */
 	createOrg: (input: { slug: string; name: string; prefix: string | null; plan: Plan; owner_email: string }) =>

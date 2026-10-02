@@ -155,6 +155,22 @@ export function setOrgSuspendedMutation(queryClient: QueryClient) {
 	});
 }
 
+/**
+ * Approves or rejects a self-serve workspace.
+ *
+ * Approving changes nothing about access — the workspace has been usable since
+ * it was created — so this is the decision plus a note to its owner. Rejecting
+ * suspends it, which is why the server insists on a reason.
+ */
+export function reviewOrgMutation(queryClient: QueryClient) {
+	return mutationOptions({
+		mutationKey: ['super-admin', 'orgs', 'review'],
+		mutationFn: async ({ slug, status, note }: { slug: string; status: 'approved' | 'rejected'; note: string | null }): Promise<AdminOrg> =>
+			toOrg(await superAdminApi.reviewOrg(slug, status, note)),
+		onSuccess: () => queryClient.invalidateQueries({ queryKey: orgKeys.all }),
+	});
+}
+
 export function setOrgPlanMutation(queryClient: QueryClient) {
 	return mutationOptions({
 		mutationKey: ['super-admin', 'orgs', 'plan'],

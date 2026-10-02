@@ -68,10 +68,16 @@ export function orgsQuery(search: OrgsSearch) {
 	const offset = offsetOf(search.page, limit);
 	const term = search.q || undefined;
 	return queryOptions({
-		queryKey: orgKeys.list(term, limit, offset),
+		queryKey: orgKeys.list(term, search.review, limit, offset),
 		queryFn: async ({ signal }): Promise<OffsetPage<AdminOrg>> => {
-			const page = await superAdminApi.orgs(term, limit, offset, signal);
-			return { items: page.data.map(toOrg), total: page.total, limit: page.limit, offset: page.offset };
+			const page = await superAdminApi.orgs(term, search.review, limit, offset, signal);
+			return {
+				items: page.data.map(toOrg),
+				total: page.total,
+				pendingReview: page.pending_review,
+				limit: page.limit,
+				offset: page.offset,
+			};
 		},
 		placeholderData: keepPreviousData,
 		staleTime: 15_000,

@@ -407,8 +407,12 @@ const authedRoute = createRoute({
 	id: 'authed',
 	beforeLoad: ({ location }) => {
 		const { status, org } = useAuthStore.getState();
-		if (status !== 'authenticated' || !org)
+		if (status !== 'authenticated')
 			throw redirect({ to: '/login', search: { redirect: location.href } });
+		// Signed in, but nothing to sign in *to* yet. Sending them back to the
+		// login form would be a loop — they are already authenticated — so the
+		// answer is the step that gives them a workspace.
+		if (!org) throw redirect({ to: '/signup/workspace' });
 	},
 	component: Outlet,
 });

@@ -3,6 +3,7 @@ import { TicketWatermark, Wordmark } from '@/shared/ui';
 import { cn } from '@/shared/lib/cn';
 import { Link } from '@tanstack/react-router';
 import smilingBg from '@/assets/smiling.jpg';
+import patternBg from '@/assets/patterns/pattern8.webp';
 
 /**
  * Split auth layout: dark brand panel on the left (hidden below lg), form on the right.
@@ -57,6 +58,16 @@ export function AuthShell({
 					'flex flex-col px-4 py-8 sm:px-10',
 					alignTop ? 'lg:justify-start lg:pt-12' : 'lg:justify-center',
 				)}
+				style={{
+					// Same wash technique as the console's own pattern backdrop, tinted
+					// white instead of brand-dark: this side is the plain form surface,
+					// not a themed panel, so the texture has to stay closer to invisible
+					// than the console's — just enough to keep the page from being flat.
+					backgroundImage: `linear-gradient(rgba(255, 255, 255, .96), rgba(255, 255, 255, .96)), url(${patternBg})`,
+					backgroundSize: 'auto, 320px 320px',
+					backgroundRepeat: 'no-repeat, repeat',
+					backgroundPosition: 'center, center',
+				}}
 			>
 				<div className="mb-8 flex justify-center lg:hidden">
 					<Wordmark light={false} />

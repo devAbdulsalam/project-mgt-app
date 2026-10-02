@@ -28,6 +28,8 @@ export interface ProfileDto {
 	 * browser still held it.
 	 */
 	avatar_url: string | null;
+	/** Opt-in: when true, signing in stops for an emailed code. */
+	two_factor_enabled: boolean;
 }
 
 export type ProfilePatch = Partial<Omit<ProfileDto, 'phone' | 'avatar_url'>> & { phone?: string | null };
@@ -47,6 +49,7 @@ function toUserPatch(p: ProfileDto): Partial<User> {
 		// undefined rather than null: `updateUser` spreads the patch, so this is
 		// what clears the photo from the store when the server says there is none.
 		avatarUrl: p.avatar_url ?? undefined,
+		twoFactor: p.two_factor_enabled,
 	};
 }
 

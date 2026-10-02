@@ -89,6 +89,9 @@ export function toOrg(dto: AdminOrgDto): AdminOrg {
 		suspended: dto.suspended,
 		suspendedAt: ms(dto.suspended_at),
 		suspendedReason: dto.suspended_reason,
+		reviewStatus: dto.review_status,
+		reviewedAt: ms(dto.reviewed_at),
+		reviewNote: dto.review_note,
 		memberCount: dto.member_count,
 		createdAt: Date.parse(dto.created_at),
 	};
