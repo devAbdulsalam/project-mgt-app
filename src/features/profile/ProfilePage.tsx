@@ -1,6 +1,6 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearch } from '@tanstack/react-router';
-import { Bell, Camera, CheckCircle2, ChevronRight, Eye, Keyboard, Loader2, Lock, Map, MapPin, Shield, Trash2, User as UserIcon, CalendarDays } from 'lucide-react';
+import { ArrowRight, Bell, Building2, Camera, Check, CheckCircle2, ChevronRight, Eye, Keyboard, Loader2, Lock, Map, MapPin, Shield, Trash2, User as UserIcon, CalendarDays, X } from 'lucide-react';
 import { AppShell, MobileHeader } from '@/shared/layouts/AppShell';
 import { LogoutDialog } from '@/shared/layouts/LogoutDialog';
 import { Avatar, Button, Card, CardHeader, Field, Input, Kbd, Pill, Select, Switch, Textarea } from '@/shared/ui';
@@ -16,6 +16,7 @@ import type { User } from '@/mocks/data';
 import { passwordStrength } from '@/features/auth/lib/password';
 import { PasswordInput, PasswordStrengthMeter } from '@/features/auth/components/PasswordInput';
 import { fileToAvatarDataUrl, profileSections, type ProfileSearch } from './model';
+import { acceptInvitation, declineInvitation, listInvitations, type Invitation } from '@/features/auth/live';
 
 function Row({ label, sub, children }: { label: ReactNode; sub?: ReactNode; children: ReactNode }) {
 	return (
@@ -303,6 +304,156 @@ function LanguageSection({ user }: { user: User }) {
 	);
 }
 
+/**
+ * The workspaces this person belongs to, and the ones asking them to join.
+ *
+ * Both halves belong to the person rather than to any one workspace, which is
+ * why they live on the profile: the org switcher in the header can move between
+ * workspaces you are already in, but nothing else in the app surfaces an
+ * invitation once the sign-in screens are behind you.
+ *
+ * Invitations are a live-API concept — the mock store has no second workspace
+ * to be invited to — so that half is simply absent on mock data rather than
+ * faked.
+ */
+function WorkspacesSection() {
+	const navigate = useNavigate();
+	const live = isLiveApi();
+	const activeOrg = useAuthStore((s) => s.org);
+	const orgs = useAuthStore((s) => s.availableOrgs);
+	const switchOrg = useAuthStore((s) => s.switchOrg);
+	const hydrate = useAuthStore((s) => s.hydrate);
+
+	// undefined means "still loading". On mock data there is nothing to load, so
+	// it starts as an empty list rather than being emptied from the effect.
+	const [invitations, setInvitations] = useState<Invitation[] | undefined>(() => (live ? undefined : []));
+	const [busy, setBusy] = useState<string>();
+
+	useEffect(() => {
+		if (!live) return;
+
+		let cancelled = false;
+		listInvitations()
+			.then((list) => {
+				if (!cancelled) setInvitations(list);
+			})
+			.catch(() => {
+				if (!cancelled) setInvitations([]);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [live]);
+
+	const open = (slug: string, id?: string) => {
+		if (id) switchOrg(id);
+		navigate({ to: '/$org/dashboard', params: { org: slug }, search: {} });
+	};
+
+	const accept = async (invite: Invitation) => {
+		setBusy(invite.orgSlug);
+		try {
+			const session = await acceptInvitation(invite.orgSlug);
+			hydrate({
+				user: session.user,
+				org: session.org,
+				orgs: session.orgs,
+				permissions: session.permissions,
+				pendingInvitations: session.pendingInvitations,
+			});
+			setInvitations((list) => (list ?? []).filter((i) => i.orgSlug !== invite.orgSlug));
+			toast(`You joined ${invite.orgName}`, { tone: 'success', action: { label: 'Open', onClick: () => open(invite.orgSlug) } });
+		} catch (e) {
+			toast(e instanceof ApiError ? e.message : 'Could not accept that invitation', { tone: 'danger' });
+		} finally {
+			setBusy(undefined);
+		}
+	};
+
+	const decline = async (invite: Invitation) => {
+		setBusy(invite.orgSlug);
+		try {
+			await declineInvitation(invite.orgSlug);
+			setInvitations((list) => (list ?? []).filter((i) => i.orgSlug !== invite.orgSlug));
+			toast(`Declined ${invite.orgName}`);
+		} catch (e) {
+			toast(e instanceof ApiError ? e.message : 'Could not decline that invitation', { tone: 'danger' });
+		} finally {
+			setBusy(undefined);
+		}
+	};
+
+	const pending = invitations ?? [];
+
+	return (
+		<div className="space-y-4">
+			<Card className="p-6">
+				<CardHeader title="Your workspaces" sub={orgs.length === 1 ? 'You belong to one workspace.' : `You belong to ${orgs.length} workspaces.`} />
+				<ul className="mt-3 divide-y divide-border">
+					{orgs.map((o) => {
+						const current = o.slug === activeOrg?.slug;
+						return (
+							<li key={o.id} className="flex flex-wrap items-center gap-3 py-3">
+								<span className="grid size-9 shrink-0 place-items-center rounded-sm bg-brand-100 text-brand-900">
+									<Building2 size={16} aria-hidden />
+								</span>
+								<span className="min-w-0 flex-1 text-[13px]">
+									<b className="block truncate">{o.name}</b>
+									<span className="block truncate text-t2">{o.slug}</span>
+								</span>
+								{current ? <Pill tone="done">Current</Pill> : null}
+								<Button size="sm" variant={current ? 'ghost' : 'secondary'} onClick={() => open(o.slug, o.id)}>
+									Open <ArrowRight size={14} aria-hidden />
+								</Button>
+							</li>
+						);
+					})}
+				</ul>
+			</Card>
+
+			{live ? (
+				<Card className="p-6">
+					<CardHeader
+						title="Invitations"
+						sub={pending.length ? 'Accepting one does not give it access to your other workspaces.' : undefined}
+					/>
+					{invitations === undefined ? (
+						<p className="mt-3 text-[13px] text-t2">Loading your invitations…</p>
+					) : pending.length === 0 ? (
+						<p className="mt-3 text-[13px] text-t2">No workspace is waiting for an answer from you.</p>
+					) : (
+						<ul className="mt-3 divide-y divide-border">
+							{pending.map((invite) => (
+								<li key={invite.orgSlug} className="flex flex-wrap items-center gap-3 py-3">
+									<span className="grid size-9 shrink-0 place-items-center rounded-sm bg-muted text-t2">
+										<Building2 size={16} aria-hidden />
+									</span>
+									<span className="min-w-0 flex-1 text-[13px]">
+										<b className="block truncate">{invite.orgName}</b>
+										<span className="block truncate text-t2">
+											{invite.invitedBy ? `Invited by ${invite.invitedBy}` : 'Invited'}
+											{invite.invitedAt ? ` · ${relativeTime(invite.invitedAt)}` : ''}
+										</span>
+									</span>
+									<Pill tone="open">{invite.role}</Pill>
+									<span className="flex gap-1.5">
+										<Button size="sm" variant="primary" loading={busy === invite.orgSlug} onClick={() => { void accept(invite); }}>
+											<Check size={14} aria-hidden /> Accept
+										</Button>
+										<Button size="sm" variant="ghost" disabled={busy === invite.orgSlug} onClick={() => { void decline(invite); }}>
+											<X size={14} aria-hidden /> Decline
+										</Button>
+									</span>
+								</li>
+							))}
+						</ul>
+					)}
+				</Card>
+			) : null}
+		</div>
+	);
+}
+
 function ShortcutsSection() {
 	const groups: [string, [string, string][]][] = [
 		['Global', [['⌘K', 'Search or run a command'], ['?', 'Help menu'], ['G then D', 'Go to dashboard'], ['G then T', 'Go to tickets']]],
@@ -324,8 +475,14 @@ export function ProfilePage() {
 	const tickets = useDb((s) => s.tickets);
 	const resolved = tickets.filter((t) => t.assigneeId === user.id && t.resolvedAt).length + 36;
 
+	const workspaceCount = useAuthStore((s) => s.availableOrgs.length);
+	const pendingInvites = useAuthStore((s) => s.pendingInvitations);
+	const workspacesSub = pendingInvites
+		? `${pendingInvites} invitation${pendingInvites === 1 ? '' : 's'} waiting`
+		: `${workspaceCount} workspace${workspaceCount === 1 ? '' : 's'}`;
+
 	const profileState = useLiveProfile();
-	const body = !profileState.ready ? <Card className="p-6 text-[13px] text-t2">{profileState.failed ? 'Could not load your profile.' : 'Loading your profile…'}</Card> : section === 'profile' ? <ProfileSection user={user} /> : section === 'security' ? <SecuritySection user={user} /> : section === 'availability' ? <AvailabilitySection user={user} /> : section === 'language' ? <LanguageSection user={user} /> : section === 'shortcuts' ? <ShortcutsSection /> : (
+	const body = !profileState.ready ? <Card className="p-6 text-[13px] text-t2">{profileState.failed ? 'Could not load your profile.' : 'Loading your profile…'}</Card> : section === 'profile' ? <ProfileSection user={user} /> : section === 'security' ? <SecuritySection user={user} /> : section === 'availability' ? <AvailabilitySection user={user} /> : section === 'language' ? <LanguageSection user={user} /> : section === 'shortcuts' ? <ShortcutsSection /> : section === 'invitations' ? <WorkspacesSection /> : (
 		<Card className="p-6"><CardHeader title="Notifications" sub="Delivery preferences live on the Notifications page." /><Link to="/$org/notifications" params={{ org: org.slug }} search={{}} className="mt-4 inline-block"><Button variant="primary"><Bell size={15} aria-hidden /> Open notification preferences</Button></Link></Card>
 	);
 
@@ -333,6 +490,7 @@ export function ProfilePage() {
 		{ key: 'profile', icon: UserIcon, label: 'Personal details', sub: `+234 ${user.phone ?? '…'} · ${(user.languages ?? ['English']).join(', ')}` },
 		{ key: 'security', icon: Lock, label: 'Security & password', sub: isLiveApi() ? 'Password and signed-in devices' : `Changed ${user.passwordChangedDaysAgo ?? 84} days ago${(user.passwordChangedDaysAgo ?? 84) > 80 ? ' · rotate soon' : ''}` },
 		{ key: 'notifications', icon: Bell, label: 'Notifications', sub: 'Push · SMS for SLA alerts' },
+		{ key: 'invitations', icon: Building2, label: 'Workspaces & invitations', sub: workspacesSub },
 		{ key: 'availability', icon: CalendarDays, label: 'Shifts & leave', sub: user.shift ?? 'Mon–Fri' },
 		{ key: 'shortcuts', icon: Keyboard, label: 'Keyboard shortcuts', sub: '⌘K, J/K, A' },
 	];

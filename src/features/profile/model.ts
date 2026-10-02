@@ -1,12 +1,15 @@
 import { z } from 'zod';
 
-export const profileSearchSchema = z.object({ section: z.enum(['profile', 'notifications', 'security', 'language', 'availability', 'shortcuts']).default('profile') });
+export const profileSearchSchema = z.object({ section: z.enum(['profile', 'notifications', 'security', 'language', 'availability', 'shortcuts', 'invitations']).default('profile') });
 export type ProfileSearch = z.infer<typeof profileSearchSchema>;
 export type ProfileSection = ProfileSearch['section'];
 
 export const profileSections: readonly { group: string; items: readonly (readonly [ProfileSection, string])[] }[] = [
 	{ group: 'My account', items: [['profile', 'Profile'], ['notifications', 'Notifications'], ['security', 'Security & password'], ['language', 'Language & region']] },
-	{ group: 'Work', items: [['availability', 'Availability & shifts'], ['shortcuts', 'Keyboard shortcuts']] },
+	// Workspaces sit under Work rather than My account: which workspaces someone
+	// belongs to is not a preference, and the invitations listed alongside them
+	// are addressed to the person rather than to any one workspace.
+	{ group: 'Work', items: [['invitations', 'Workspaces & invitations'], ['availability', 'Availability & shifts'], ['shortcuts', 'Keyboard shortcuts']] },
 ];
 
 /** Resize an image file to a small square JPEG data URL for the avatar. */
