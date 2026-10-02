@@ -38,6 +38,8 @@ interface MeResponse {
 	orgs: LiveOrg[];
 	active_org: LiveOrg | null;
 	permissions: string[];
+	/** Workspaces waiting on an answer. Counted, not listed — see listInvitations. */
+	pending_invitations?: number;
 }
 
 /** Maps a backend role onto the display roles the UI already knows. */
@@ -88,6 +90,14 @@ export interface Session {
 	org: Org | null;
 	orgs: Org[];
 	permissions: string[];
+	/**
+	 * How many workspaces have invited this person and are waiting.
+	 *
+	 * Carried on the session so the app can tell someone with no workspace yet
+	 * from someone who has been invited to one: the first needs to create a
+	 * workspace, the second needs to answer an invitation.
+	 */
+	pendingInvitations: number;
 }
 
 /**
@@ -104,6 +114,7 @@ export async function fetchMe(): Promise<Session> {
 		org: me.active_org ? toOrg(me.active_org) : null,
 		orgs: me.orgs.map(toOrg),
 		permissions: me.permissions ?? [],
+		pendingInvitations: me.pending_invitations ?? 0,
 	};
 }
 
@@ -412,4 +423,58 @@ function prefixFrom(name: string): string | undefined {
 	// The server's CHECK wants a leading letter; anything else it would reject
 	// is better dropped than sent, since the prefix is only a convenience.
 	return /^[A-Z][A-Z0-9]{0,9}$/.test(prefix) ? prefix : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Invitations
+// ---------------------------------------------------------------------------
+
+export interface Invitation {
+	orgSlug: string;
+	orgName: string;
+	/** The backend role, mapped to the label the rest of the UI shows. */
+	role: Role;
+	invitedAt: number | null;
+	invitedBy: string | null;
+}
+
+interface InvitationDto {
+	org_slug: string;
+	org_name: string;
+	role: string;
+	invited_at: string | null;
+	invited_by: string | null;
+}
+
+/**
+ * Workspaces waiting on an answer from the signed-in person.
+ *
+ * Not org-scoped, because they are not a member yet: these live on /auth so
+ * they are reachable before any membership exists.
+ */
+export async function listInvitations(): Promise<Invitation[]> {
+	const res = await api.get<{ data: InvitationDto[] }>('/auth/invitations');
+	return res.data.map((i) => ({
+		orgSlug: i.org_slug,
+		orgName: i.org_name,
+		role: ROLE_LABELS[i.role] ?? 'Support agent',
+		invitedAt: i.invited_at ? Date.parse(i.invited_at) : null,
+		invitedBy: i.invited_by,
+	}));
+}
+
+/** Joins the workspace. Resolves with the session as it now stands. */
+export async function acceptInvitation(orgSlug: string): Promise<Session> {
+	const me = await api.post<MeResponse>(`/auth/invitations/${encodeURIComponent(orgSlug)}/accept`);
+	return {
+		user: toUser(me.user, me.active_org?.role),
+		org: me.active_org ? toOrg(me.active_org) : null,
+		orgs: me.orgs.map(toOrg),
+		permissions: me.permissions ?? [],
+		pendingInvitations: me.pending_invitations ?? 0,
+	};
+}
+
+export async function declineInvitation(orgSlug: string): Promise<void> {
+	await api.post(`/auth/invitations/${encodeURIComponent(orgSlug)}/decline`);
 }

@@ -64,7 +64,18 @@ export class ApiClient {
 			opts.signal?.addEventListener('abort', onAbort, { once: true });
 			const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
 			try {
-				const res = await fetch(url, { method, headers, body: opts.json !== undefined ? JSON.stringify(opts.json) : undefined, signal: controller.signal });
+				// credentials: the access token rides in a header, so most calls do not
+				// need the cookie — but /auth/logout does, to revoke the session
+				// server-side rather than only forgetting it here. Cross-origin,
+				// fetch sends no cookies at all unless asked, and the deployed app
+				// is on a different origin from the API.
+				const res = await fetch(url, {
+					method,
+					headers,
+					credentials: 'include',
+					body: opts.json !== undefined ? JSON.stringify(opts.json) : undefined,
+					signal: controller.signal,
+				});
 				if (res.status === 429 && attempt < retries) {
 					const after = parseRetryAfter(res.headers.get('retry-after'));
 					await sleep(Math.min((after ?? 0.5) * 1000, 10_000));

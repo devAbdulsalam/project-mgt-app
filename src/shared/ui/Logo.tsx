@@ -38,7 +38,7 @@ export function Wordmark({
 				<b
 					className={cn(
 						'block text-[15px] font-semibold',
-						light ? 'text-white' : 'text-white',
+						light ? 'text-white' : 'text-t1',
 					)}
 				>
 					Ledge Desk

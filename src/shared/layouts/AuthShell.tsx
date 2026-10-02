@@ -39,13 +39,9 @@ export function AuthShell({
 			>
 				<div className="flex items-center">
 					<Link to="/" className="shrink-0" aria-label="Ledge Desk home">
-						<Wordmark light={false} />
+						<Wordmark light={true} />
 					</Link>
-					{badge ? (
-						<span className="ml-auto text-[11px]">
-							{badge}
-						</span>
-					) : null}
+					{badge ? <span className="ml-auto text-[11px]">{badge}</span> : null}
 				</div>
 				<div className="mt-auto mb-8 max-w-[480px]">{panel}</div>
 				<div className="text-[11px] ">
@@ -55,7 +51,7 @@ export function AuthShell({
 			</aside>
 			<main
 				className={cn(
-					'flex flex-col px-4 py-8 sm:px-10',
+					'flex flex-col px-4 py-8 sm:px-10 pt-24',
 					alignTop ? 'lg:justify-start lg:pt-12' : 'lg:justify-center',
 				)}
 				style={{

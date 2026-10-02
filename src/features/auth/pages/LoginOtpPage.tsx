@@ -41,6 +41,14 @@ export function LoginOtpPage() {
 		try {
 			const org = await verifyOtp(code);
 			useTourStore.getState().flagLogin();
+
+			// No workspace yet: the authed guard sends them on to answer an
+			// invitation or create one, so there is nowhere to pass params for.
+			if (!org) {
+				navigate({ to: '/invitations', replace: true });
+				return;
+			}
+
 			navigate({
 				to: redirect ?? '/$org/dashboard',
 				params: { org: org.slug },

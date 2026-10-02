@@ -54,12 +54,25 @@ interface AuthState {
 	 * would disagree the moment the two definitions drift.
 	 */
 	permissions: string[];
+	/**
+	 * Workspaces that have invited this person and are waiting for an answer.
+	 *
+	 * Kept on the session so the app can tell someone with no workspace yet from
+	 * someone who has been invited to one — the first is sent to create a
+	 * workspace, the second to answer.
+	 */
+	pendingInvitations: number;
 	/** Pending step-up: sign-in accepted, waiting for OTP. */
 	pendingLogin: { userId: string; orgId: string; phone: string; remember: boolean; email?: string } | null;
 	signup: SignupDraft;
 
 	login: (input: { email: string; password: string; remember: boolean }) => Promise<{ requiresOtp: boolean; phone: string }>;
-	verifyOtp: (code: string) => Promise<Org>;
+	/**
+	 * Completes an OTP sign-in. Resolves with the active workspace, or null when
+	 * the account has none yet — an invitation to answer, or a workspace to
+	 * create. The caller routes that.
+	 */
+	verifyOtp: (code: string) => Promise<Org | null>;
 	resendOtp: () => Promise<void>;
 	/**
 	 * Replaces the session after a live restore on page load.
@@ -68,7 +81,7 @@ interface AuthState {
 	 * someone who signed up and has not created one yet. They are still signed
 	 * in; the router is what decides where a person without a workspace goes.
 	 */
-	hydrate: (session: { user: User; org: Org | null; orgs: Org[]; permissions?: string[] }) => void;
+	hydrate: (session: { user: User; org: Org | null; orgs: Org[]; permissions?: string[]; pendingInvitations?: number }) => void;
 	switchOrg: (orgId: string) => void;
 	updateUser: (patch: Partial<User>) => void;
 	logout: () => void;
@@ -120,6 +133,7 @@ export const useAuthStore = create<AuthState>()(
 			org: null,
 			availableOrgs: [],
 			permissions: [],
+			pendingInvitations: 0,
 			pendingLogin: null,
 			signup: emptySignup,
 
@@ -131,8 +145,8 @@ export const useAuthStore = create<AuthState>()(
 						// A second factor is opt-in, so most sign-ins finish here and the
 						// OTP screen is never shown.
 						if (!result.requiresOtp) {
-							const { user, org, orgs: available, permissions } = result.session;
-							set({ status: 'authenticated', user, org, availableOrgs: available, permissions, pendingLogin: null });
+							const { user, org, orgs: available, permissions, pendingInvitations } = result.session;
+							set({ status: 'authenticated', user, org, availableOrgs: available, permissions, pendingInvitations, pendingLogin: null });
 							return { requiresOtp: false, phone: '' };
 						}
 
@@ -159,9 +173,10 @@ export const useAuthStore = create<AuthState>()(
 					const pending = get().pendingLogin;
 					if (!pending?.email) throw new AuthError('Your sign-in session expired. Please sign in again.');
 					try {
-						const { user, org, orgs: available, permissions } = await live.verifyOtp(pending.email, code.trim());
-						if (!org) throw new AuthError('Your account is not in any workspace yet.');
-						set({ status: 'authenticated', user, org, availableOrgs: available, permissions, pendingLogin: null });
+						const { user, org, orgs: available, permissions, pendingInvitations } = await live.verifyOtp(pending.email, code.trim());
+						set({ status: 'authenticated', user, org, availableOrgs: available, permissions, pendingInvitations, pendingLogin: null });
+						// A workspace-less session is legitimate now: they may have an
+						// invitation to answer, or need to create one. The router decides.
 						return org;
 					} catch (err) {
 						if (err instanceof AuthError) throw err;
@@ -191,13 +206,14 @@ export const useAuthStore = create<AuthState>()(
 				await sleep(300);
 			},
 
-			hydrate({ user, org, orgs: available, permissions }) {
+			hydrate({ user, org, orgs: available, permissions, pendingInvitations }) {
 				set({
 					status: 'authenticated',
 					user,
 					org,
 					availableOrgs: available,
 					permissions: permissions ?? [],
+					pendingInvitations: pendingInvitations ?? 0,
 					pendingLogin: null,
 				});
 			},
@@ -216,7 +232,7 @@ export const useAuthStore = create<AuthState>()(
 				// Fire-and-forget: the session is revoked server-side, but the UI
 				// should not wait on the network to sign someone out.
 				if (isLiveApi()) void live.logout();
-				set({ status: 'anonymous', user: null, org: null, availableOrgs: [], permissions: [], pendingLogin: null });
+				set({ status: 'anonymous', user: null, org: null, availableOrgs: [], permissions: [], pendingInvitations: 0, pendingLogin: null });
 			},
 
 			updateSignup(patch) {
@@ -395,7 +411,7 @@ export const useAuthStore = create<AuthState>()(
 		{
 			name: 'ledgedesk.session',
 			storage: createJSONStorage(() => localStorage),
-			partialize: (s) => ({ status: s.status, user: s.user, org: s.org, availableOrgs: s.availableOrgs, permissions: s.permissions, signup: s.signup, pendingLogin: s.pendingLogin }),
+			partialize: (s) => ({ status: s.status, user: s.user, org: s.org, availableOrgs: s.availableOrgs, permissions: s.permissions, pendingInvitations: s.pendingInvitations, signup: s.signup, pendingLogin: s.pendingLogin }),
 		},
 	),
 );

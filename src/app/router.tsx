@@ -76,6 +76,10 @@ const SignupVerifyPage = lazyRouteComponent(
 	() => import('@/features/auth/pages/SignupVerifyPage'),
 	'SignupVerifyPage',
 );
+const InvitationsPage = lazyRouteComponent(
+	() => import('@/features/auth/pages/InvitationsPage'),
+	'InvitationsPage',
+);
 const SignupWorkspacePage = lazyRouteComponent(
 	() => import('@/features/auth/pages/SignupWorkspacePage'),
 	'SignupWorkspacePage',
@@ -324,6 +328,27 @@ const signupVerifyRoute = createRoute({
 	path: '/signup/verify',
 	component: SignupVerifyPage,
 });
+/**
+ * Answering an invitation.
+ *
+ * Outside `authedRoute` on purpose: that guard needs an active workspace, and
+ * the whole point of this screen is that there is not one yet. It checks the
+ * session itself.
+ */
+const invitationsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: '/invitations',
+	beforeLoad: ({ location }) => {
+		const { status, org } = useAuthStore.getState();
+		if (status !== 'authenticated')
+			throw redirect({ to: '/login', search: { redirect: location.href } });
+		// Already in a workspace: there is nothing to decide here. Invitations
+		// that arrive later are answered from the workspace switcher.
+		if (org) throw redirect({ to: '/$org/dashboard', params: { org: org.slug }, search: {} });
+	},
+	component: InvitationsPage,
+});
+
 const signupWorkspaceRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: '/signup/workspace',
@@ -391,6 +416,7 @@ const devLoginRoute = createRoute({
 		if (search.stage === 'otp')
 			throw redirect({ to: '/login/verify', search: {}, replace: true });
 		const org = await store.verifyOtp('482913');
+		if (!org) throw redirect({ to: '/invitations', replace: true });
 		throw redirect({
 			to: search.to ?? '/$org/dashboard',
 			params: { org: org.slug },
@@ -410,9 +436,14 @@ const authedRoute = createRoute({
 		if (status !== 'authenticated')
 			throw redirect({ to: '/login', search: { redirect: location.href } });
 		// Signed in, but nothing to sign in *to* yet. Sending them back to the
-		// login form would be a loop — they are already authenticated — so the
-		// answer is the step that gives them a workspace.
-		if (!org) throw redirect({ to: '/signup/workspace' });
+		// login form would be a loop — they are already authenticated. Someone
+		// with an invitation waiting answers it; everyone else creates a
+		// workspace. /invitations handles the empty case itself, so a stale
+		// count cannot strand anyone.
+		if (!org) {
+			const { pendingInvitations } = useAuthStore.getState();
+			throw redirect({ to: pendingInvitations > 0 ? '/invitations' : '/signup/workspace' });
+		}
 	},
 	component: Outlet,
 });
@@ -798,6 +829,7 @@ const routeTree = rootRoute.addChildren([
 	loginOtpRoute,
 	signupRoute,
 	signupVerifyRoute,
+	invitationsRoute,
 	signupWorkspaceRoute,
 	signupTeamRoute,
 	forgotRoute,
